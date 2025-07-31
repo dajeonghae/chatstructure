@@ -98,15 +98,18 @@ const RestoreButton = styled(SaveButton)`
 `;
 
 function Chatbot() {
-  const [messages, setMessages] = useState([]);
-  const [input, setInput] = useState("");
-  const [currentIndex, setCurrentIndex] = useState(0);  // 🔥 현재 활성 대화 인덱스
-  const messagesEndRef = useRef(null);
-  const messageRefs = useRef([]);  // 🔥 메시지별 Ref 배열
+  const [messages, setMessages] = useState([]); // 대화 목록을 배열로 보관
+  const [input, setInput] = useState(""); // 입력창 내용을 보관
+  const [currentIndex, setCurrentIndex] = useState(0);  // 현재 활성 대화 인덱스
+
+  const messagesEndRef = useRef(null); // 맨 아래로 스크롤
+  const messageRefs = useRef([]);  // 각 메시지 <div> DOM을 배열로 저장. 특정 메시지로 스크롤할 수 있도록 함
+  const prevActiveDialogNumbersRef = useRef([]);
+
   const dispatch = useDispatch();
 
   const dialogNumber = useSelector((state) => state.node.dialogCount);
-  const activeDialogNumbers = useSelector((state) => state.node.activeDialogNumbers);  // 🔥 활성화된 대화 번호들
+  const activeDialogNumbers = useSelector((state) => state.node.activeDialogNumbers);  // 활성화된 대화 번호들
   const contextMode = useSelector((state) => state.mode.contextMode);
 
   // 🔥 대화 스크롤 이동 함수
@@ -125,23 +128,30 @@ function Chatbot() {
 
 // 🔥 활성화된 대화 번호가 변경될 때 최신 대화로 스크롤
 useEffect(() => {
-  if (activeDialogNumbers.length > 0) {
-    // 🔥 항상 오름차순으로 정렬하여 최신 대화 번호를 가져옴
-    const sortedDialogs = [...activeDialogNumbers].sort((a, b) => a - b);
-    const latestDialogNumber = sortedDialogs[sortedDialogs.length - 1];  // 🔥 최신 대화 번호를 배열 마지막으로 가져옴
-    const latestIndex = sortedDialogs.length - 1;  // 🔥 최신 대화 인덱스는 배열의 마지막 인덱스
-    setCurrentIndex(latestIndex);
+  const prevDialogs = prevActiveDialogNumbersRef.current;
+  const currDialogs = activeDialogNumbers;
 
-    console.log("🚀 [Auto Scroll] 활성화된 대화 번호 목록:", sortedDialogs);
-    console.log("🔥 [Auto Scroll] 최신 대화 번호:", latestDialogNumber);
-    console.log("🔥 [Auto Scroll] 최신 대화 인덱스:", latestIndex);
+  // 정렬 (비교를 위해 정렬된 상태 유지)
+  const prevSorted = [...prevDialogs].sort((a, b) => a - b);
+  const currSorted = [...currDialogs].sort((a, b) => a - b);
 
-    // 🔥 상태가 업데이트된 후에 스크롤 처리 (비동기 처리로 DOM 업데이트 보장)
+  // 1. 추가된 항목 찾기
+  const newlyAdded = currSorted.filter(num => !prevSorted.includes(num));
+
+  if (newlyAdded.length > 0) {
+    const latest = newlyAdded[newlyAdded.length - 1]; // 가장 큰 번호로 스크롤
+    const latestIndex = latest - 1;
+
+    setCurrentIndex(currSorted.indexOf(latest));
+
+    console.log("🆕 [스크롤 트리거] 새로 추가된 활성 대화 번호:", latest);
     setTimeout(() => {
-      console.log("🔥 [Auto Scroll] 스크롤 이동 시도:", latestDialogNumber - 1);
-      scrollToMessage(latestDialogNumber - 1);
+      scrollToMessage(latestIndex);
     }, 0);
   }
+
+  // 현재 값을 다음 비교를 위해 저장
+  prevActiveDialogNumbersRef.current = currDialogs;
 }, [activeDialogNumbers]);
 
 
