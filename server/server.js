@@ -364,8 +364,9 @@ app.post('/api/update-graph', async (req, res) => {
           role: 'system',
           content: `
             너는 그래프 라벨러다. 아래 정보를 보고 "새 노드"일 때만 라벨/부모/관계를 정리한다.
+            - keyword는 무조건 직관적으로 이해하기 쉬운 간단한 단어로 설정해라.
             - Top-3 후보(유사도/통과여부 포함)를 부모 선택 참고자료로 사용하라.
-            - parentNodeId는 Top-3 중에서 고르되, 적절치 않으면 "null"을 반환한다.
+            - parentNodeId는 Top-3 중에서 고르되, 적절치 않으면 현재 그래프 상태를 보고 존재하는 키워드 중에서 선택하라.
 
             반드시 이 JSON 스키마로 답하라:
             \`\`\`json
