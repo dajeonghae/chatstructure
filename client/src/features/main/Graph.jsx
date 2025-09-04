@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useState } from "react";
+import React, { useRef, useEffect, useState, useMemo } from "react";
 import styled from "styled-components";
 import ReactFlow, { useNodesState, useEdgesState, Background, Controls, BezierEdge } from "reactflow";
 import "reactflow/dist/style.css";
@@ -20,6 +20,11 @@ const colorPalette = [
   "#A9DED3", "#FFD93D", "#EC7FA0", "#98E4FF", "#D1A3FF",
   "#6BCB77", "#FF914D", "#93AFEA", "#FFB6C1"
 ];
+
+// 팔레트에서 인덱스로 색을 고르는 유틸
+function getColor(index) {
+  return colorPalette[index % colorPalette.length];
+}
 
 const Page = styled.div`
   display: flex;
@@ -62,6 +67,11 @@ const TokenPanel = styled(HelperPanel)`
 
 const KeywordPanel = styled(HelperPanel)`
   flex: 1 1 auto;
+`;
+
+const FixedKeywordsBox = styled.div`
+  height: 92px;          
+  overflow: auto;        
 `;
 
 const PanelTitle = styled.div`
@@ -111,9 +121,10 @@ const Chip = styled.span`
   display: inline-block;
   padding: 4px 10px;
   border-radius: 999px;
-  background: ${(p) => (p.alt ? "#FDE2E4" : "#E2F0CB")};
-  color: #333;
+  background: ${(p) => p.$bg || "#E2F0CB"};
+  color: ${(p) => p.$fg || "#333"};
   font-size: 13px;
+  font-weight: 500;
 `;
 
 const SlideSection = styled.div`
@@ -129,9 +140,15 @@ const SlideSection = styled.div`
   transform: translateY(${(p) => (p.$open ? "0px" : "8px")});
 `;
 
-/* ── 유틸 ───────────────────────────────────────────────────────────── */
-function getColor(index) {
-  return colorPalette[index % colorPalette.length];
+function getReadableTextColor(hex = "#000000") {
+try {
+  const x = hex.replace("#", "");
+  const r = parseInt(x.substring(0, 2), 16);
+  const g = parseInt(x.substring(2, 4), 16);
+  const b = parseInt(x.substring(4, 6), 16);
+  const yiq = (r*299 + g*587 + b*114) / 1000;
+  return yiq >= 140 ? "#111" : "#fff";
+} catch { return "#111"; }
 }
 
 /* 색상 보간(검붉은색 → 빨강). 입력은 hex, 0<=t<=1 */
@@ -160,6 +177,24 @@ function getFillColor(percent) {
   return mixHex(dark, danger, t);
 }
 
+function hexToRgb(hex = "#000000") {
+  const x = hex.replace("#", "");
+  const r = parseInt(x.substring(0, 2), 16) || 0;
+  const g = parseInt(x.substring(2, 4), 16) || 0;
+  const b = parseInt(x.substring(4, 6), 16) || 0;
+  return { r, g, b };
+}
+
+function hexWithAlpha(hex, alpha = 0.4) {
+  const { r, g, b } = hexToRgb(hex);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+// 글자색: 노드색을 약간 탁하게 (검정이랑 50% 정도 섞기)
+function dullify(hex, amount = 0.5) {
+  return mixHex(hex, "#111111", amount);
+}
+
 function estimateTokensForText(s = "") {
   if (!s) return 0;
   const cjkRegex = /[\u1100-\u11FF\u3130-\u318F\uAC00-\uD7AF\u3040-\u30FF\u31F0-\u31FF\u3400-\u9FFF]/g;
@@ -186,6 +221,7 @@ function Graph() {
   const activeNodeIds = useSelector((state) => state.node.activeNodeIds);
   const nodesData = useSelector((state) => state.node.nodes) || {};
   const contextMode = useSelector((state) => state.mode.contextMode);
+  const nodeColors = useSelector((state) => state.node.nodeColors) || {};
 
   const [helpersHeight, setHelpersHeight] = useState(0);
   const helpersInnerRef = useRef(null);
@@ -209,12 +245,26 @@ function Graph() {
 
   const fillColor = getFillColor(percent);
 
-  const keywords = ["campus", "engineering", "food", "pohang"];
-
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
 
   const handleToggle = () => dispatch(toggleContextMode());
+
+  const keywordChips = useMemo(() => {
+    const chips = [];
+    activeNodeIds.forEach((nid) => {
+      const node = nodesData[nid];
+      if (!node) return;
+
+      const base = (nodeColors && nodeColors[nid]) || "#E2F0CB";
+      const chipBg = hexWithAlpha(base, 0.25);  // ← 노드색 + 투명도
+      const chipFg = dullify(base, 0.6);       // ← 노드색을 아주 탁하게
+
+      const kws = Array.isArray(node.keywords) ? node.keywords : [];
+      kws.forEach((kw) => chips.push({ kw, nid, bg: chipBg, fg: chipFg }));
+    });
+    return chips;
+  }, [activeNodeIds, nodesData, nodeColors]);
 
   useEffect(() => {
     const nodeMap = { ...nodesData };
@@ -270,7 +320,7 @@ function Graph() {
 
     const sortedRoots = Object.values(nodeMap)
       .filter((n) => n && !n.parent)
-      .sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+      .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
 
     sortedRoots.forEach((root, idx) => {
       const color = getColor(idx);
@@ -348,7 +398,7 @@ function Graph() {
     requestAnimationFrame(measure);
     window.addEventListener("resize", measure);
     return () => window.removeEventListener("resize", measure);
-  }, [contextMode, keywords.length, tokenUsed, tokenLimit]);
+  }, [contextMode, activeNodeIds.length, tokenUsed, tokenLimit]);
 
   useEffect(() => {
     if (!contextMode || !activeNodeIds?.length) {
@@ -409,7 +459,7 @@ function Graph() {
               <PanelTitle>Token Info</PanelTitle>
 
               {/* 헤더: % + 상태문구(색상 동적) */}
-              <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 9 }}>
                 <span style={{ fontSize: 28, fontWeight: 800, color: '#373D47' }}>
                   {percent}%
                 </span>
@@ -435,14 +485,24 @@ function Graph() {
               </small>
             </TokenPanel>
 
-            <KeywordPanel>
-              <PanelTitle>Selected Keyword</PanelTitle>
-              <Chips>
-                {keywords.map((kw, i) => (
-                  <Chip key={kw} alt={i % 2 === 1}>{kw}</Chip>
-                ))}
-              </Chips>
-            </KeywordPanel>
+          <KeywordPanel>
+            <PanelTitle>Selected Keyword</PanelTitle>
+            <FixedKeywordsBox>
+              {keywordChips.length === 0 ? (
+                <div style={{ color: "#8A8F98", fontSize: 13 }}>
+                  노드를 클릭/활성화하면 해당 노드의 키워드들이 여기에 표시됩니다.
+                </div>
+              ) : (
+                <Chips>
+                  {keywordChips.map(({ kw, nid, bg, fg }) => (
+                    <Chip key={`${nid}:${kw}`} $bg={bg} $fg={fg}>
+                      {kw}
+                    </Chip>
+                  ))}
+                </Chips>
+              )}
+            </FixedKeywordsBox>
+          </KeywordPanel>
           </HelperContainer>
         </div>
       </SlideSection>

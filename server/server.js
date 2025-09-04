@@ -405,6 +405,100 @@ app.post('/api/update-graph', async (req, res) => {
   }
 });
 
+app.post('/api/label-node', async (req, res) => {
+  const { text, existing = [] } = req.body;
+
+  // --- 유틸: 응답을 튼튼하게 파싱 ---
+  const sanitize = (s) => {
+    if (!s) return "";
+    // 코드펜스 제거
+    s = s.replace(/```(?:json)?/gi, '```');
+    s = s.replace(/```/g, '').trim();
+    return s;
+  };
+
+  const tryParseKeywords = (raw) => {
+    const cleaned = sanitize(raw);
+
+    // 1) 배열 그대로 오는 경우
+    if (cleaned.trim().startsWith('[')) {
+      try {
+        const arr = JSON.parse(cleaned);
+        if (Array.isArray(arr)) return arr;
+      } catch {}
+    }
+
+    // 2) 객체로 오는 경우 { "keywords": [...] }
+    if (cleaned.trim().startsWith('{')) {
+      try {
+        const obj = JSON.parse(cleaned);
+        if (obj && Array.isArray(obj.keywords)) return obj.keywords;
+      } catch {}
+    }
+
+    // 3) 텍스트에 배열만 섞여 있는 경우: 첫 번째 [ ... ] 추출
+    const match = cleaned.match(/\[[\s\S]*?\]/);
+    if (match) {
+      try {
+        const arr = JSON.parse(match[0]);
+        if (Array.isArray(arr)) return arr;
+      } catch {}
+    }
+
+    // 4) 마지막 방어: 쉼표 기준 단어 추출
+    const fallback = cleaned
+      .split(/[\n,]/)
+      .map(s => s.replace(/["'\[\]{}]/g, '').trim())
+      .filter(Boolean);
+    return fallback;
+  };
+
+  try {
+    const resp = await openai.chat.completions.create({
+      model: "gpt-3.5-turbo",
+      messages: [
+        { role: "system", content:
+          `다음 대화를 보고 '짧은 한국어 키워드' 3개만 뽑아 **JSON 배열**로만 답해.
+           - 해시태그/기호 금지, 1~3단어.
+           - 기존 키워드와 겹치면 다른 표현.
+           - 설명/문장/코드펜스 없이, 오직 JSON 배열만!
+           예: ["RSA 암호", "공개키", "토션트"]`
+        },
+        { role: "user", content: `기존 키워드: ${JSON.stringify(existing)}` },
+        { role: "user", content: `대화:\n${text}` },
+      ],
+      max_tokens: 120,
+      // ❌ response_format 제거 (배열 강제와 충돌)
+    });
+
+    const raw = resp.choices?.[0]?.message?.content ?? "";
+    let arr = tryParseKeywords(raw);
+
+    // 문자열로만 & 공백 제거
+    let keywords = (Array.isArray(arr) ? arr : [])
+      .map(x => String(x).trim())
+      .filter(Boolean);
+
+    // 중복/동의어 대충 제거(소문자 기준) + 최대 3개
+    const seen = new Set();
+    keywords = keywords.filter(k => {
+      const key = k.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    }).slice(0, 3);
+
+    if (!keywords.length) {
+      return res.status(422).json({ error: "no keywords parsed", raw });
+    }
+
+    return res.json({ keywords });
+  } catch (e) {
+    console.error("❌ /api/label-node error", e?.response?.data || e.message || e);
+    return res.status(500).json({ error: "labeling failed" });
+  }
+});
+
 
 app.listen(8080, function () {
   console.log('🚀 Server is listening on port 8080');

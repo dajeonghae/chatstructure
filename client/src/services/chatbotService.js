@@ -1,5 +1,44 @@
 import axios from "axios";
-import { addOrUpdateNode, setParentNode, applyEmbeddingUpdate } from "../redux/slices/nodeSlice";
+import { addOrUpdateNode, setParentNode, applyEmbeddingUpdate, setNodeKeywords } from "../redux/slices/nodeSlice";
+
+const buildNodeTextForLabel = (node, takePairs = 3) => {
+  if (!node || !node.dialog) return "";
+  const entries = Object.entries(node.dialog)
+    .map(([n, v]) => [Number(n), v])
+    .sort((a, b) => a[0] - b[0]);
+
+  const last = entries.slice(-takePairs);
+  return last.map(([n, { userMessage, gptMessage }]) =>
+    `Q${n}: ${userMessage}\nA${n}: ${gptMessage}`
+  ).join("\n\n");
+};
+
+// 비동기로 /api/label-node 호출 → 완료되면 Redux에 setNodeKeywords 디스패치
+const triggerKeywordLabeling = (dispatch, nodeId, nodes) => {
+  try {
+    const node = nodes[nodeId];
+    if (!node) return;
+    const text = buildNodeTextForLabel(node, 3); // 최근 3쌍 사용
+    if (!text) return;
+
+    const existing = Array.isArray(node.keywords) ? node.keywords : [];
+
+    // 👉 "fire-and-forget": await 하지 않음 (UI 지연 없음)
+    axios.post("http://localhost:8080/api/label-node", { text, existing })
+      .then((r) => {
+        const { keywords } = r.data || {};
+        if (Array.isArray(keywords) && keywords.length) {
+          console.log("✅ 라벨링 결과:", keywords);
+          dispatch(setNodeKeywords({ id: nodeId, keywords }));
+        }
+      })
+      .catch((err) => {
+        console.warn("label-node 실패(무시 가능):", err?.message || err);
+      });
+  } catch (e) {
+    console.warn("triggerKeywordLabeling 예외(무시 가능):", e?.message || e);
+  }
+};
 
 // 🟢 API 요청을 처리하는 함수
 export const sendMessageToApi = (input, previousMessages) => async (dispatch, getState) => {
@@ -64,6 +103,8 @@ export const sendMessageToApi = (input, previousMessages) => async (dispatch, ge
           newSimStats: updatedNode.newSimStats
         }));
       }
+
+      triggerKeywordLabeling(dispatch, attachNodeId, getState().node.nodes);
       return gptResponse;
     }
 
@@ -91,6 +132,8 @@ export const sendMessageToApi = (input, previousMessages) => async (dispatch, ge
           gptMessage: gptResponse,
           contextMode,
         }));
+
+        triggerKeywordLabeling(dispatch, existingNodeId, getState().node.nodes);
         return gptResponse;
       }
 
@@ -125,6 +168,7 @@ export const sendMessageToApi = (input, previousMessages) => async (dispatch, ge
         dispatch(setParentNode({ nodeId: newNodeId, parentId: parent, relation }));
       }
 
+      triggerKeywordLabeling(dispatch, newNodeId, getState().node.nodes);
       return gptResponse;
     } catch (error) {
       console.error("Error sending message:", error);
