@@ -275,46 +275,53 @@ useEffect(() => {
       if (user) pairs.push({ user, assistant });
     }
 
-    // 현재 messages 스냅샷을 기반으로, 로컬 running 배열을 유지하며 일관되게 push
     let running = [...messages];
 
-    // 턴 순서대로 "handleSend와 동일 파이프라인" 실행
-    for (const { user, assistant } of pairs) {
-      // 1) 사용자 메시지를 화면(running)에 먼저 붙임
-      const userMessage = {
-        role: "user",
-        content: user,
-        nodeId: currentNodeId,
-        number: running.length + 1,
-      };
-      running = [...running, userMessage];
-      setMessages(running);
-
-      try {
-        // 2) 기존 파이프라인 호출: 그래프 갱신 포함
-        //    assistantOverride로 "모델 호출 없이" 주어진 assistant 텍스트 사용
-        const gptMessageContent = await dispatch(
-          sendMessageToApi(user, running, { assistantOverride: assistant })
-        );
-
-        // 3) 어시스턴트 메시지를 화면에 붙임
-        const gptMessage = {
-          role: "assistant",
-          content: gptMessageContent,
+    // 시작 신호(선택: 모달에서도 보냄)
+    window.dispatchEvent(new CustomEvent("vis:start"));
+    try {
+      // 턴 순서대로 실행
+      for (const { user, assistant } of pairs) {
+        // 1) 사용자 메시지를 먼저 화면에 붙임
+        const userMessage = {
+          role: "user",
+          content: user,
           nodeId: currentNodeId,
           number: running.length + 1,
         };
-        running = [...running, gptMessage];
+        running = [...running, userMessage];
         setMessages(running);
-      } catch (err) {
-        console.error("Replay turn failed:", err);
+
+        try {
+          // 2) 기존 파이프라인 호출(그래프 갱신 포함)
+          // assistantOverride로 모델 콜 없이 주어진 assistant 텍스트 사용
+          const gptMessageContent = await dispatch(
+            sendMessageToApi(user, running, { assistantOverride: assistant })
+          );
+
+          // 3) 어시스턴트 메시지를 화면에 붙임
+          const gptMessage = {
+            role: "assistant",
+            content: gptMessageContent,
+            nodeId: currentNodeId,
+            number: running.length + 1,
+          };
+          running = [...running, gptMessage];
+          setMessages(running);
+        } catch (err) {
+          console.error("Replay turn failed:", err);
+          // 실패해도 다음 턴 계속 진행(필요시 여기서 중단하도록 변경 가능)
+        }
       }
+    } finally {
+      // 완료 신호(항상 보냄) → 모달이 vis:done을 받으면 닫힘
+      window.dispatchEvent(new CustomEvent("vis:done"));
     }
   };
 
   window.addEventListener("chat:replay", onReplay);
   return () => window.removeEventListener("chat:replay", onReplay);
-// eslint-disable-next-line react-hooks/exhaustive-deps
+  // eslint-disable-next-line react-hooks/exhaustive-deps
 }, [dispatch, currentNodeId, messages.length]);
 
   return (
