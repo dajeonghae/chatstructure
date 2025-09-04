@@ -14,6 +14,8 @@ import { setNodeColors } from "../../redux/slices/nodeSlice";
 const edgeTypes = { custom: CustomEdge, bezier: BezierEdge };
 const nodeTypes = { tooltipNode: CustomTooltipNode };
 
+const TOKEN_LIMIT = 15900;
+
 const colorPalette = [
   "#A9DED3", "#FFD93D", "#EC7FA0", "#98E4FF", "#D1A3FF",
   "#6BCB77", "#FF914D", "#93AFEA", "#FFB6C1"
@@ -35,7 +37,7 @@ const GraphPanel = styled.div`
   border: 1px solid #eee;
   border-radius: 12px;
   overflow: hidden;
-  box-shadow: 0 2px 6px rgba(0,0,0,0.06);
+  box-shadow: 0 2px 6px rgba(0,0,0,0.12);
 `;
 
 const HelperContainer = styled.div`
@@ -51,7 +53,7 @@ const HelperPanel = styled.div`
   border: 1px solid #eee;
   border-radius: 12px;
   padding: 28px 26px;
-  box-shadow: 0 2px 6px rgba(0,0,0,0.06);
+  box-shadow: 0 2px 6px rgba(0,0,0,0.12);
 `;
 
 const TokenPanel = styled(HelperPanel)`
@@ -82,21 +84,20 @@ const VisContainer = styled.div`
   z-index: 10;
 `;
 
-/* transient prop 사용: $percent */
+/* ── ProgressBar: 채워진 부분 색을 동적으로 바꿉니다 ─────────────── */
 const ProgressBar = styled.div`
+  position: relative;
   width: 100%;
   height: 12px;
   background: #eee;
   border-radius: 25px;
   overflow: hidden;
-  margin: 8px 0px 6px 0px;
+  margin: 8px 0 6px 0;
 
-  & > div {
+  .fill {
     height: 100%;
     border-radius: 25px;
-    background: #575A5E;
-    width: ${(p) => p.$percent}%;
-    transition: width 0.3s ease;
+    transition: width 0.3s ease, background 0.25s ease;
   }
 `;
 
@@ -118,7 +119,7 @@ const Chip = styled.span`
 const SlideSection = styled.div`
   height: ${(p) => p.$h}px;
   padding: ${(p) => (p.$open ? "8px 0" : "0")};
-  box-sizing: content-box; /* height에 padding 미포함 (중요) */
+  box-sizing: content-box;
   transition:
     height 280ms ease,
     padding 280ms ease,
@@ -133,6 +134,51 @@ function getColor(index) {
   return colorPalette[index % colorPalette.length];
 }
 
+/* 색상 보간(검붉은색 → 빨강). 입력은 hex, 0<=t<=1 */
+function mixHex(a, b, t) {
+  const pa = parseInt(a.slice(1), 16);
+  const pb = parseInt(b.slice(1), 16);
+  const ra = (pa >> 16) & 0xff, ga = (pa >> 8) & 0xff, ba = pa & 0xff;
+  const rb = (pb >> 16) & 0xff, gb = (pb >> 8) & 0xff, bb = pb & 0xff;
+  const r = Math.round(ra + (rb - ra) * t);
+  const g = Math.round(ga + (gb - ga) * t);
+  const b2 = Math.round(ba + (bb - ba) * t);
+  return `#${((1 << 24) + (r << 16) + (g << 8) + b2).toString(16).slice(1).toUpperCase()}`;
+}
+
+/* 퍼센트에 따라 채움 색(단색) 계산: <85% 회색, 85~95% 검붉은→빨강, >=95% 빨강 */
+function getFillColor(percent) {
+  const base = "#575A5E";   // 기본(회색)
+  const dark = "#7F1D1D";   // 검붉은 시작색
+  const danger = "#E11D48"; // 빨강 끝색
+
+  if (percent < 85) return base;
+  if (percent >= 95) return danger;
+
+  // 85~95% 사이 단색 보간
+  const t = (percent - 85) / (95 - 85); // 0~1
+  return mixHex(dark, danger, t);
+}
+
+function estimateTokensForText(s = "") {
+  if (!s) return 0;
+  const cjkRegex = /[\u1100-\u11FF\u3130-\u318F\uAC00-\uD7AF\u3040-\u30FF\u31F0-\u31FF\u3400-\u9FFF]/g;
+  const cjkMatches = s.match(cjkRegex) || [];
+  const cjkCount = cjkMatches.length;
+  const nonCjkCount = s.length - cjkCount;
+  const nonCjkTokens = Math.ceil(nonCjkCount / 4);
+  const overhead = 2;
+  return cjkCount + nonCjkTokens + overhead;
+}
+
+function estimateTurnTokens(userMessage = "", gptMessage = "") {
+  const u = `[User] ${userMessage}`;
+  const a = `[Assistant] ${gptMessage}`;
+  const sep = 2;
+  return estimateTokensForText(u) + estimateTokensForText(a) + sep;
+}
+
+
 function Graph() {
   const dispatch = useDispatch();
   const containerRef = useRef(null);
@@ -144,10 +190,25 @@ function Graph() {
   const [helpersHeight, setHelpersHeight] = useState(0);
   const helpersInnerRef = useRef(null);
 
-  // 데모 데이터(원하면 Redux 값으로 교체)
-  const tokenUsed = 9600;
-  const tokenLimit = 15900;
-  const percent = Math.round((tokenUsed / tokenLimit) * 100);
+  const [tokenUsed, setTokenUsed] = useState(0);
+  const tokenLimit = TOKEN_LIMIT;
+  const percent = Math.min(100, Math.round((tokenUsed / tokenLimit) * 100));
+
+  // 경고/상태 문구
+  let status = { text: "occupied", color: "#A5A7AA" };
+  if (percent >= 100) {
+    status = {
+      text: "⚠︎ 100% 초과: history가 요약되어 맥락 손실이 발생할 수 있어요",
+      color: "#B91C1C",
+    };
+  } else if (percent >= 95) {
+    status = { text: "⚠︎ 매우 혼잡 (요약 임박)", color: "#DC2626" };
+  } else if (percent >= 85) {
+    status = { text: "주의: 여유 거의 없음", color: "#F97316" };
+  }
+
+  const fillColor = getFillColor(percent);
+
   const keywords = ["campus", "engineering", "food", "pohang"];
 
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
@@ -155,7 +216,6 @@ function Graph() {
 
   const handleToggle = () => dispatch(toggleContextMode());
 
-  /* ── 그래프 배치 useEffect (기존 로직 그대로) ─────────────────────── */
   useEffect(() => {
     const nodeMap = { ...nodesData };
     const childrenMap = {};
@@ -280,17 +340,41 @@ function Graph() {
     dispatch(setNodeColors(rootColorMap));
   }, [nodesData, activeNodeIds, contextMode, dispatch]);
 
-  /* ── 슬라이드 높이 측정 useEffect (⭐ 바깥에 분리) ─────────────────── */
   useEffect(() => {
     const measure = () => {
       const el = helpersInnerRef.current;
       setHelpersHeight(contextMode && el ? el.getBoundingClientRect().height : 0);
     };
-    // 다음 페인트 이후에 측정 (더 부드럽게)
     requestAnimationFrame(measure);
     window.addEventListener("resize", measure);
     return () => window.removeEventListener("resize", measure);
   }, [contextMode, keywords.length, tokenUsed, tokenLimit]);
+
+  useEffect(() => {
+    if (!contextMode || !activeNodeIds?.length) {
+      setTokenUsed(0);
+      return;
+    }
+
+    let sum = 0;
+    const seen = new Set();
+
+    activeNodeIds.forEach((nid) => {
+      const node = nodesData[nid];
+      if (!node?.dialog) return;
+
+      Object.entries(node.dialog).forEach(([dialogNumber, pair]) => {
+        const key = `${nid}:${dialogNumber}`;
+        if (seen.has(key)) return;
+        seen.add(key);
+
+        const { userMessage = "", gptMessage = "" } = pair || {};
+        sum += estimateTurnTokens(userMessage, gptMessage);
+      });
+    });
+
+    setTokenUsed(sum);
+  }, [contextMode, activeNodeIds, nodesData]);
 
   return (
     <Page>
@@ -323,11 +407,25 @@ function Graph() {
           <HelperContainer>
             <TokenPanel>
               <PanelTitle>Token Info</PanelTitle>
+
+              {/* 헤더: % + 상태문구(색상 동적) */}
               <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-                <span style={{ fontSize: 28, fontWeight: 800, color: '#373D47' }}>{percent}%</span>
-                <span style={{ color: "#A5A7AA" }}>occupied</span>
+                <span style={{ fontSize: 28, fontWeight: 800, color: '#373D47' }}>
+                  {percent}%
+                </span>
+                <span style={{ color: status.color }}>{status.text}</span>
               </div>
-              <ProgressBar $percent={percent}><div /></ProgressBar>
+
+              <ProgressBar>
+                <div
+                  className="fill"
+                  style={{
+                    width: `${percent}%`,
+                    background: fillColor,  // ← 단색
+                  }}
+                />
+              </ProgressBar>
+
               <small>
                 <strong style={{ fontWeight: 800, color: '#373D47' }}>
                   {tokenUsed.toLocaleString()}

@@ -29,9 +29,14 @@ export const sendMessageToApi = (input, previousMessages) => async (dispatch, ge
       history: filteredMessages,
     });
 
-    const { message: gptResponse } = response.data;
+    const chatData = response.data;
+    const { message: gptResponse } = chatData;
     console.log("📌 GPT 응답:", { gptResponse });
 
+    if (chatData.skipEmbedding) {
+          console.log("서버 신호에 따라 임베딩 및 그래프 업데이트를 건너뜁니다.");
+          return { content: gptResponse, isSpecialResponse: true }; // gptResponse만 반환하고 모든 작업을 끝냅니다.
+    }
 
     // 2) Embedding + 후보/판정 (nodes 함께 전달)
     const embRes = await axios.post("http://localhost:8080/api/embedding", {
