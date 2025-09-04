@@ -213,6 +213,12 @@ function estimateTurnTokens(userMessage = "", gptMessage = "") {
   return estimateTokensForText(u) + estimateTokensForText(a) + sep;
 }
 
+function normalizeKeyword(s) {
+  return String(s ?? "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toLowerCase();
+}
 
 function Graph() {
   const dispatch = useDispatch();
@@ -251,20 +257,31 @@ function Graph() {
   const handleToggle = () => dispatch(toggleContextMode());
 
   const keywordChips = useMemo(() => {
-    const chips = [];
+    // 같은 키워드는 하나만 노출 (첫 등장의 색/노드 사용)
+    const seen = new Map(); // normKw -> { kw, nid, bg, fg }
     activeNodeIds.forEach((nid) => {
       const node = nodesData[nid];
       if (!node) return;
 
       const base = (nodeColors && nodeColors[nid]) || "#E2F0CB";
-      const chipBg = hexWithAlpha(base, 0.25);  // ← 노드색 + 투명도
-      const chipFg = dullify(base, 0.6);       // ← 노드색을 아주 탁하게
+      const chipBg = hexWithAlpha(base, 0.25); // 배경: 노드색 + 투명도
+      const chipFg = dullify(base, 0.6);       // 글자: 노드색을 약간 탁하게
 
       const kws = Array.isArray(node.keywords) ? node.keywords : [];
-      kws.forEach((kw) => chips.push({ kw, nid, bg: chipBg, fg: chipFg }));
+      kws.forEach((kw) => {
+        const norm = normalizeKeyword(kw);
+        if (!norm) return;
+        // 이미 본 키워드는 스킵 (먼저 본 색/노드 유지)
+        if (!seen.has(norm)) {
+          seen.set(norm, { kw, nid, bg: chipBg, fg: chipFg });
+        }
+      });
     });
-    return chips;
+
+    // 입력 순서(활성 노드 순서 -> 키워드 순서) 보존
+    return Array.from(seen.values());
   }, [activeNodeIds, nodesData, nodeColors]);
+
 
   useEffect(() => {
     const nodeMap = { ...nodesData };
