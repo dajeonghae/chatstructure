@@ -34,15 +34,40 @@ const MessagesContainer = styled.div`
 
 const InputContainer = styled.div`
   display: flex;
-  width: 80%;
-  height: 40px;
-  align-items: center;
-  justify-content: center;
-  padding: 7px 13px 7px 20px;
+  width: 85%;
+  min-height: 40px;
+  max-height: 120px;
+  align-items: flex-end;         // 버튼과 텍스트에어리어를 아래쪽 정렬
+  justify-content: space-between; // center → space-between
+  padding: 8px 8px 8px 20px;     // 오른쪽 패딩 줄임 (버튼 공간)
   border-radius: 100px;
   border: 1px solid rgba(240, 240, 240);
   background-color: #ffffff;
   box-shadow: 0px 8px 24px rgba(149, 157, 165, 0.2);
+  gap: 10px;                     // 텍스트에어리어와 버튼 사이 간격
+`;
+
+const TextArea = styled.textarea`
+  min-height: 24px;
+  max-height: 96px;              // 컨테이너보다 작게
+  flex: 1;
+  border: none;
+  background-color: transparent;
+  font-size: 16px;
+  font-family: "Pretendard";
+  resize: none;
+  overflow-y: auto;
+  line-height: 1.2;
+  padding: 2px 20px;                // 심플하게
+  margin: 0;                     // margin-right 제거
+  
+  &:focus {
+    outline: none;
+  }
+  
+  &::placeholder {
+    color: #999;                 // placeholder 색상
+  }
 `;
 
 const Input = styled.input`
@@ -313,11 +338,18 @@ function Chatbot() {
     }
   };
 
-  const handleKeyDown = (e) => {
-    if (e.key === "Enter") {
+const handleKeyDown = (e) => {
+  if (e.key === "Enter") {
+    if (e.shiftKey) {
+      // 👉 Shift+Enter: 줄바꿈 허용 (기본 동작 그대로)
+      return;
+    } else {
+      // 👉 그냥 Enter: 전송
+      e.preventDefault(); // 줄바꿈 막기
       handleSend();
     }
-  };
+  }
+};
 
 useEffect(() => {
   const onReplay = async (e) => {
@@ -405,6 +437,14 @@ const handleLoadFromServer = async () => {
   }
 };
 
+const handleInput = (e) => {
+  setInput(e.target.value);
+  
+  // 자동 높이 조절
+  e.target.style.height = 'auto';
+  e.target.style.height = e.target.scrollHeight + 'px';
+};
+
   return (
     <ChatContainer>
       <MessagesContainer>
@@ -454,10 +494,9 @@ const handleLoadFromServer = async () => {
         />
       </TopButtonContainer>
       <InputContainer>
-        <Input
-          type="text"
+        <TextArea
           value={input}
-          onChange={(e) => setInput(e.target.value)}
+          onChange={handleInput}
           onKeyDown={handleKeyDown}
           placeholder="메세지 입력하기"
         />
