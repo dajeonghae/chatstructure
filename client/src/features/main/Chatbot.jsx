@@ -34,15 +34,40 @@ const MessagesContainer = styled.div`
 
 const InputContainer = styled.div`
   display: flex;
-  width: 80%;
-  height: 40px;
-  align-items: center;
-  justify-content: center;
-  padding: 7px 13px 7px 20px;
+  width: 85%;
+  min-height: 40px;
+  max-height: 120px;
+  align-items: flex-end;         // 버튼과 텍스트에어리어를 아래쪽 정렬
+  justify-content: space-between; // center → space-between
+  padding: 8px 8px 8px 20px;     // 오른쪽 패딩 줄임 (버튼 공간)
   border-radius: 100px;
   border: 1px solid rgba(240, 240, 240);
   background-color: #ffffff;
   box-shadow: 0px 8px 24px rgba(149, 157, 165, 0.2);
+  gap: 10px;                     // 텍스트에어리어와 버튼 사이 간격
+`;
+
+const TextArea = styled.textarea`
+  min-height: 24px;
+  max-height: 96px;              // 컨테이너보다 작게
+  flex: 1;
+  border: none;
+  background-color: transparent;
+  font-size: 16px;
+  font-family: "Pretendard";
+  resize: none;
+  overflow-y: auto;
+  line-height: 1.2;
+  padding: 2px 20px;                // 심플하게
+  margin: 0;                     // margin-right 제거
+  
+  &:focus {
+    outline: none;
+  }
+  
+  &::placeholder {
+    color: #999;                 // placeholder 색상
+  }
 `;
 
 const Input = styled.input`
@@ -138,6 +163,7 @@ function Chatbot() {
   const [messages, setMessages] = useState([]); // 대화 목록을 배열로 보관
   const [input, setInput] = useState(""); // 입력창 내용을 보관
   const [currentIndex, setCurrentIndex] = useState(0);  // 현재 활성 대화 인덱스
+  const [isLoading, setIsLoading] = useState(false);
 
   const messagesEndRef = useRef(null); // 맨 아래로 스크롤
   const messageRefs = useRef([]);  // 각 메시지 <div> DOM을 배열로 저장. 특정 메시지로 스크롤할 수 있도록 함
@@ -285,7 +311,9 @@ function Chatbot() {
 
 
   const handleSend = async () => {
-    if (input.trim() === "") return;
+    if (input.trim() === "" || isLoading) return; // 로딩 중이면 실행하지 않음
+
+    setIsLoading(true); // 로딩 시작
 
     const userMessage = {
       role: "user",
@@ -310,14 +338,23 @@ function Chatbot() {
       setMessages(updatedMessages);
     } catch (error) {
       console.error("Error sending message:", error);
+    } finally {
+      setIsLoading(false); // 로딩 종료
     }
   };
 
-  const handleKeyDown = (e) => {
-    if (e.key === "Enter") {
+const handleKeyDown = (e) => {
+  if (e.key === "Enter") {
+    if (e.shiftKey) {
+      // 👉 Shift+Enter: 줄바꿈 허용 (기본 동작 그대로)
+      return;
+    } else {
+      // 👉 그냥 Enter: 전송
+      e.preventDefault(); // 줄바꿈 막기
       handleSend();
     }
-  };
+  }
+};
 
 useEffect(() => {
   const onReplay = async (e) => {
@@ -405,6 +442,14 @@ const handleLoadFromServer = async () => {
   }
 };
 
+const handleInput = (e) => {
+  setInput(e.target.value);
+  
+  // 자동 높이 조절
+  e.target.style.height = 'auto';
+  e.target.style.height = e.target.scrollHeight + 'px';
+};
+
   return (
     <ChatContainer>
       <MessagesContainer>
@@ -453,16 +498,21 @@ const handleLoadFromServer = async () => {
           onChange={handleImportSnapshot}
         />
       </TopButtonContainer>
-      <InputContainer>
-        <Input
-          type="text"
+      <InputContainer style={{ opacity: isLoading ? 0.5 : 1, pointerEvents: isLoading ? 'none' : 'auto' }}>
+        <TextArea
           value={input}
-          onChange={(e) => setInput(e.target.value)}
+          onChange={handleInput}
           onKeyDown={handleKeyDown}
           placeholder="메세지 입력하기"
+          disabled={isLoading}
         />
-        <Button onClick={handleSend}>
-          <span className="material-symbols-outlined md-white md-24" style={{ userSelect: "none" }}>arrow_upward</span>
+        <Button onClick={handleSend} disabled={isLoading}>
+          <span 
+            className="material-symbols-outlined md-white md-24" 
+            style={{ userSelect: "none" }}
+          >
+            arrow_upward
+          </span>
         </Button>
       </InputContainer>
     </ChatContainer>
