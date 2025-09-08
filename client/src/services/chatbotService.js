@@ -62,6 +62,13 @@ export const sendMessageToApi = (input, previousMessages, opts = {}) => async (d
 
     console.log("🔥 Context Mode 활성화 - 활성 노드 필터링:", filteredNodes);
 
+    // [+] A. 파이프라인 완전 우회 (스냅샷/리플레이 고정 재현용)
+    if (opts.skipPipeline) { // [+]
+      const gptResponse = String(opts.assistantOverride ?? ""); // [+]
+      return gptResponse; // [+] 그래프/임베딩 갱신 생략
+    } // [+]
+
+
     // 🔹 Step 1: 어시스턴트 응답 확보
     // [CHANGED] 리플레이(주입) 지원: opts.assistantOverride가 있으면 /api/chat 호출 생략
     let gptResponse;

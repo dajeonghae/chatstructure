@@ -5,7 +5,16 @@ import { sendMessageToApi } from "../../services/chatbotService.js";
 import DialogBox from "../../components/textBox/DialogBox.jsx";
 import { setCurrentScrolledDialog, resetState} from "../../redux/slices/nodeSlice.js";
 import { parseConversationHistory } from "../../utils/parseConversationHistory.js";
-import { store } from "../../redux/store.js"; 
+import {
+  buildFullSnapshot,
+  downloadSnapshotFile,   // ← 추가
+  loadSnapshotThunk,      // ← 추가
+  saveSnapshotToProject,
+  listProjectSnapshots,
+  loadSnapshotFromProjectThunk
+} from "../../utils/snapshotManager.js";
+import { store } from "../../redux/store.js";
+import axios from "axios";
 
 const ChatContainer = styled.div`
   display: flex;
@@ -93,10 +102,16 @@ const ArrowButton = styled.button`
   }
 `;
 
-const SaveButton = styled.button`
+const TopButtonContainer = styled.div`
   position: fixed;
-  bottom: 160px;
+  top: 20px;
   right: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+`;
+
+const SaveButton = styled.button`
   padding: 8px 12px;
   background-color: #4299e1;
   color: white;
@@ -106,9 +121,18 @@ const SaveButton = styled.button`
 `;
 
 const RestoreButton = styled(SaveButton)`
-  bottom: 210px;
   background-color: #ed8936;
 `;
+
+const ExportButton = styled(SaveButton)`
+  background-color: #2d3748;
+`;
+const ImportButton = styled(SaveButton)`
+  background-color: #ffffff;
+  color: #2d3748;
+  border: 1px solid #2d3748;
+`;
+
 
 function Chatbot() {
   const [messages, setMessages] = useState([]); // 대화 목록을 배열로 보관
@@ -117,6 +141,7 @@ function Chatbot() {
 
   const messagesEndRef = useRef(null); // 맨 아래로 스크롤
   const messageRefs = useRef([]);  // 각 메시지 <div> DOM을 배열로 저장. 특정 메시지로 스크롤할 수 있도록 함
+  const fileInputRef = useRef(null)
   const prevActiveDialogNumbersRef = useRef([]);
 
   const dispatch = useDispatch();
@@ -201,29 +226,63 @@ function Chatbot() {
   const activeNodeIds = useSelector((state) => state.node.activeNodeIds);
   const currentNodeId = activeNodeIds[activeNodeIds.length - 1] || "root";
 
-  const handleSaveState = () => {
-    const currentState = {
-      nodes: store.getState().node.nodes,
-      activeNodeIds: store.getState().node.activeNodeIds,
-      activeDialogNumbers: store.getState().node.activeDialogNumbers,
-      dialogCount: store.getState().node.dialogCount,
-      messages,
-    };
+  // const handleSaveState = () => {
+  //   const currentState = {
+  //     nodes: store.getState().node.nodes,
+  //     activeNodeIds: store.getState().node.activeNodeIds,
+  //     activeDialogNumbers: store.getState().node.activeDialogNumbers,
+  //     dialogCount: store.getState().node.dialogCount,
+  //     currentScrolledDialog: store.getState().node.currentScrolledDialog, 
+  //     nodeColors: store.getState().node.nodeColors, 
+  //     messages,
+  //   };
   
-    localStorage.setItem("testBackup", JSON.stringify(currentState));
-    alert("✅ 상태 저장 완료!");
+  //   localStorage.setItem("testBackup", JSON.stringify(currentState));
+  //   alert("✅ 상태 저장 완료!");
+  // };
+  
+  // const handleRestoreState = () => {
+  //   const saved = JSON.parse(localStorage.getItem("testBackup"));
+  //   if (!saved) return alert("❌ 저장된 상태가 없습니다.");
+  
+  //   dispatch(resetState(saved));
+  //   setMessages(saved.messages);
+  //   setCurrentIndex(saved.activeDialogNumbers.length - 1);
+  //   dispatch(setCurrentScrolledDialog(saved.activeDialogNumbers[saved.activeDialogNumbers.length - 1]));
+  //   alert("♻️ 상태 복원 완료!");
+  // };
+
+// [+] 스냅샷 JSON 파일로 내보내기
+  const handleExportSnapshot = () => {
+    const reduxState = store.getState(); // [+]
+    const snapshot = buildFullSnapshot(reduxState, messages);
+    downloadSnapshotFile(snapshot);
   };
-  
-  const handleRestoreState = () => {
-    const saved = JSON.parse(localStorage.getItem("testBackup"));
-    if (!saved) return alert("❌ 저장된 상태가 없습니다.");
-  
-    dispatch(resetState(saved));
-    setMessages(saved.messages);
-    setCurrentIndex(saved.activeDialogNumbers.length - 1);
-    dispatch(setCurrentScrolledDialog(saved.activeDialogNumbers[saved.activeDialogNumbers.length - 1]));
-    alert("♻️ 상태 복원 완료!");
+
+  // [+] 파일 선택창 오픈
+  const handleImportClick = () => {
+    fileInputRef.current?.click(); // [+]
   };
+
+  // [+] 스냅샷 JSON 불러오기
+  const handleImportSnapshot = async (e) => {
+    const file = e.target.files?.[0]; // [+]
+    e.target.value = ""; // [+]
+    if (!file) return; // [+]
+    try {
+    const { messages: restored } = await dispatch(loadSnapshotThunk(file));
+    setMessages(restored || []);
+    // 복원 직후 맨 아래로 스크롤
+    setTimeout(() => {
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }, 0);
+      alert("📦 스냅샷 복원 완료!(JSON)"); // [+]
+    } catch (err2) {
+      console.error(err2); // [+]
+      alert("❌ 스냅샷 불러오기 실패 (콘솔 확인)"); // [+]
+    }
+  };
+
 
   const handleSend = async () => {
     if (input.trim() === "") return;
@@ -296,7 +355,7 @@ useEffect(() => {
           // 2) 기존 파이프라인 호출(그래프 갱신 포함)
           // assistantOverride로 모델 콜 없이 주어진 assistant 텍스트 사용
           const gptMessageContent = await dispatch(
-            sendMessageToApi(user, running, { assistantOverride: assistant })
+            sendMessageToApi(user, running, { assistantOverride: assistant }) // [+]
           );
 
           // 3) 어시스턴트 메시지를 화면에 붙임
@@ -323,6 +382,28 @@ useEffect(() => {
   return () => window.removeEventListener("chat:replay", onReplay);
   // eslint-disable-next-line react-hooks/exhaustive-deps
 }, [dispatch, currentNodeId, messages.length]);
+
+const handleLoadFromServer = async () => {
+  try {
+    const r = await axios.get("http://localhost:8080/api/chatgraph/get");
+    const snap = r.data?.snapshot;
+    if (!snap) throw new Error("no snapshot returned");
+
+    // snapshotManager.loadSnapshotThunk는 File/객체 모두 지원 → 그대로 사용
+    const { messages: restored } = await dispatch(loadSnapshotThunk(snap));
+    setMessages(restored || []);
+
+    // 복원 직후 스크롤
+    setTimeout(() => {
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }, 0);
+
+    alert("♻️ 서버에서 스냅샷 불러오기 완료 (chatgraph.json)");
+  } catch (e) {
+    console.error(e);
+    alert("❌ 서버 불러오기 실패 (콘솔 확인)");
+  }
+};
 
   return (
     <ChatContainer>
@@ -361,8 +442,17 @@ useEffect(() => {
           })()}
         </ArrowContainer>
       )}
-          <SaveButton onClick={handleSaveState}>💾 저장</SaveButton>
-    <RestoreButton onClick={handleRestoreState}>♻️ 복원</RestoreButton>
+      <TopButtonContainer>
+        <ExportButton onClick={handleExportSnapshot}>Export</ExportButton> 
+        <ImportButton onClick={handleLoadFromServer}>Import</ImportButton>
+        <input
+          type="file"
+          ref={fileInputRef}
+          accept="application/json"
+          style={{ display: "none" }}
+          onChange={handleImportSnapshot}
+        />
+      </TopButtonContainer>
       <InputContainer>
         <Input
           type="text"

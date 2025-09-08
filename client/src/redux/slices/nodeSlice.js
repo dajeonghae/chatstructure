@@ -159,7 +159,6 @@ const nodeSlice = createSlice({
           simStats: simStats ?? null,
           parent: state.nodes[id]?.parent ?? undefined,
           relation: state.nodes[id]?.relation ?? undefined,
-          children: [],
           dialog: {},
           createdAt: Date.now(),
           keywords: [],
@@ -223,11 +222,17 @@ const nodeSlice = createSlice({
     },
 
     resetState: (state, action) => {
-      const { nodes, activeNodeIds, activeDialogNumbers, dialogCount } = action.payload;
-      state.nodes = nodes;
+      const { nodes, activeNodeIds, activeDialogNumbers, dialogCount, currentScrolledDialog, nodeColors } = action.payload;
+      state.nodes = nodes || state.nodes;
       state.activeNodeIds = activeNodeIds;
       state.activeDialogNumbers = activeDialogNumbers;
-      state.dialogCount = dialogCount;
+      state.dialogCount = Number.isInteger(dialogCount) ? dialogCount : 1;
+      if (typeof currentScrolledDialog !== "undefined") {
+        state.currentScrolledDialog = currentScrolledDialog; 
+      }
+      if (typeof nodeColors !== "undefined") {
+        state.nodeColors = nodeColors; 
+      }
     }  
   },
 

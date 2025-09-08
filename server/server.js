@@ -94,6 +94,7 @@ require('dotenv').config();
 const express = require('express');
 const path = require('path');
 const OpenAI = require('openai');
+const fs = require('fs');     
 const cors = require('cors');
 const { encoding_for_model } = require("@dqbd/tiktoken");
 const enc = encoding_for_model("gpt-3.5-turbo");
@@ -102,6 +103,22 @@ const app = express();
 app.use(cors());
 app.use(express.json({ limit: "20mb" }));
 app.use(express.urlencoded({ limit: "10mb", extended: true }));
+const FIXED_SNAPSHOT_PATH = path.join(__dirname, "chatgraph.json");
+
+// 정적 파일 (옵션)
+app.use(express.static(path.join(__dirname, 'public')));
+
+// ====== 스냅샷 저장 폴더 세팅 ======
+const SNAPSHOT_DIR = path.join(__dirname, "snapshots");
+if (!fs.existsSync(SNAPSHOT_DIR)) {
+  fs.mkdirSync(SNAPSHOT_DIR, { recursive: true });
+}
+function tsName(base = "chatgraph-snapshot") {
+  const ts = new Date();
+  const pad = (n) => String(n).padStart(2, "0");
+  const stamp = `${ts.getFullYear()}${pad(ts.getMonth()+1)}${pad(ts.getDate())}-${pad(ts.getHours())}${pad(ts.getMinutes())}${pad(ts.getSeconds())}`;
+  return `${base}-${stamp}.json`;
+}
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
@@ -499,6 +516,81 @@ app.post('/api/label-node', async (req, res) => {
   }
 });
 
+// 저장: body = { name?: string, snapshot: object }
+app.post("/api/snapshots/save", (req, res) => {
+  try {
+    const { name, snapshot } = req.body || {};
+    if (!snapshot || typeof snapshot !== "object") {
+      return res.status(400).json({ error: "snapshot(object) is required" });
+    }
+    const filename = (name && name.endsWith(".json") ? name : (name ? `${name}.json` : tsName()));
+    const filePath = path.join(SNAPSHOT_DIR, filename);
+    fs.writeFileSync(filePath, JSON.stringify(snapshot, null, 2), "utf-8");
+    return res.json({ ok: true, filename });
+  } catch (e) {
+    console.error(e);
+    return res.status(500).json({ error: "save failed" });
+  }
+});
+
+// 목록: 최신순
+app.get("/api/snapshots/list", (req, res) => {
+  try {
+    const files = fs.readdirSync(SNAPSHOT_DIR)
+      .filter(f => f.endsWith(".json"))
+      .map(f => {
+        const stat = fs.statSync(path.join(SNAPSHOT_DIR, f));
+        return { name: f, size: stat.size, mtime: stat.mtimeMs };
+      })
+      .sort((a,b)=> b.mtime - a.mtime);
+    res.json({ files });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "list failed" });
+  }
+});
+
+// 가져오기: /api/snapshots/get?filename=xxx.json
+app.get("/api/snapshots/get", (req, res) => {
+  try {
+    const { filename } = req.query;
+    if (!filename) return res.status(400).json({ error: "filename is required" });
+    const filePath = path.join(SNAPSHOT_DIR, path.basename(filename));
+    if (!fs.existsSync(filePath)) return res.status(404).json({ error: "not found" });
+    const data = JSON.parse(fs.readFileSync(filePath, "utf-8"));
+    res.json({ snapshot: data });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "get failed" });
+  }
+});
+
+app.post("/api/chatgraph/save", (req, res) => {
+  try {
+    const { snapshot } = req.body || {};
+    if (!snapshot || typeof snapshot !== "object") {
+      return res.status(400).json({ error: "snapshot(object) is required" });
+    }
+    fs.writeFileSync(FIXED_SNAPSHOT_PATH, JSON.stringify(snapshot, null, 2), "utf-8");
+    return res.json({ ok: true, filename: "chatgraph.json" });
+  } catch (e) {
+    console.error(e);
+    return res.status(500).json({ error: "save failed" });
+  }
+});
+
+app.get("/api/chatgraph/get", (req, res) => {
+  try {
+    if (!fs.existsSync(FIXED_SNAPSHOT_PATH)) {
+      return res.status(404).json({ error: "not found" });
+    }
+    const data = JSON.parse(fs.readFileSync(FIXED_SNAPSHOT_PATH, "utf-8"));
+    return res.json({ snapshot: data });
+  } catch (e) {
+    console.error(e);
+    return res.status(500).json({ error: "get failed" });
+  }
+});
 
 app.listen(8080, function () {
   console.log('🚀 Server is listening on port 8080');
