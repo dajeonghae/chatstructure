@@ -8,10 +8,27 @@ import {
 } from "reactflow";
 
 // 🔥 스타일 컴포넌트
+// const EdgeLabelContainer = styled.div`
+//   position: absolute;
+//   background-color: #fcfcfc;
+//   padding: 2px;
+//   padding-bottom: 10px;
+//   border-radius: 50%;
+//   font-size: 14px;
+//   font-weight: 500;
+//   color: ${COLORS.black_font};
+//   white-space: nowrap;
+//   display: flex;
+//   align-items: center;
+//   justify-content: center;
+//   width: 32px;
+//   height: 32px;
+//   transform: translate(-50%, -50%);
+// `;
+
 const EdgeLabelContainer = styled.div`
   position: absolute;
   background-color: #fcfcfc;
-  padding: 2px;
   padding-bottom: 10px;
   border-radius: 50%;
   font-size: 14px;
@@ -21,8 +38,7 @@ const EdgeLabelContainer = styled.div`
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  box-sizing: border-box;
   transform: translate(-50%, -50%);
 `;
 

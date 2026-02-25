@@ -236,6 +236,8 @@ function Graph() {
   const tokenLimit = TOKEN_LIMIT;
   const percent = Math.min(100, Math.round((tokenUsed / tokenLimit) * 100));
 
+  const [nodeSizeMap, setNodeSizeMap] = useState({});
+
   // 경고/상태 문구
   let status = { text: "occupied", color: "#A5A7AA" };
   if (percent >= 100) {
@@ -282,6 +284,38 @@ function Graph() {
     return Array.from(seen.values());
   }, [activeNodeIds, nodesData, nodeColors]);
 
+const rafRef = useRef(null);
+
+useEffect(() => {
+  if (rafRef.current) cancelAnimationFrame(rafRef.current);
+
+  rafRef.current = requestAnimationFrame(() => {
+    setNodeSizeMap((prev) => {
+      let changed = false;
+      const next = { ...prev };
+
+      for (const n of nodes) {
+        const w = n.width ?? n.measured?.width;
+        const h = n.height ?? n.measured?.height;
+        if (!w || !h) continue;
+
+        const prevW = prev[n.id]?.w;
+        const prevH = prev[n.id]?.h;
+        if (prevW !== w || prevH !== h) {
+          next[n.id] = { w, h };
+          changed = true;
+        }
+      }
+
+      return changed ? next : prev;
+    });
+  });
+
+  return () => {
+    if (rafRef.current) cancelAnimationFrame(rafRef.current);
+  };
+}, [nodes]);
+
 
   useEffect(() => {
     const nodeMap = { ...nodesData };
@@ -292,9 +326,6 @@ function Graph() {
     const updatedNodes = [];
     const updatedEdges = [];
 
-    const spacingX = 340;
-    const spacingY = 100;
-    let currentY = 10000;
 
     Object.values(nodeMap).forEach((node) => {
       if (!node?.id) return;
@@ -304,46 +335,129 @@ function Graph() {
       }
     });
 
-    const assignPositions = (nodeId, depth, rootId, inheritedColor) => {
-      const children = childrenMap[nodeId] || [];
+    // ✅ 추가: 같은 부모의 자식들을 createdAt 기준 “최신 먼저”
+    Object.keys(childrenMap).forEach((pid) => {
+      childrenMap[pid].sort((a, b) => {
+        const na = nodeMap[a];
+        const nb = nodeMap[b];
+        return (nb?.createdAt || 0) - (na?.createdAt || 0);
+      });
+    });
 
-      if (!rootColorMap[nodeId]) rootColorMap[nodeId] = inheritedColor;
-      nodeRootMap[nodeId] = rootId;
+    // const assignPositions = (nodeId, depth, rootId, inheritedColor) => {
+    //   const children = childrenMap[nodeId] || [];
 
-      let subtreeHeight = 0;
-      const childPositions = [];
+    //   if (!rootColorMap[nodeId]) rootColorMap[nodeId] = inheritedColor;
+    //   nodeRootMap[nodeId] = rootId;
 
-      for (let i = 0; i < children.length; i++) {
-        const childId = children[i];
-        const childHeight = assignPositions(childId, depth + 1, rootId, inheritedColor);
-        subtreeHeight += childHeight;
-        childPositions.push({ id: childId, height: childHeight });
-      }
+    //   let subtreeWidth = 0;
+    //   const childPositions = [];
 
-      let yPos;
-      if (children.length === 0) {
-        currentY -= spacingY;
-        yPos = currentY;
-        subtreeHeight = spacingY;
-      } else {
-        const top = positionedMap[childPositions[0].id].y;
-        const bottom = positionedMap[childPositions[childPositions.length - 1].id].y;
-        yPos = (top + bottom) / 2;
-      }
+    //   for (let i = 0; i < children.length; i++) {
+    //     const childId = children[i];
+    //     const childWidth = assignPositions(childId, depth + 1, rootId, inheritedColor);
+    //     subtreeWidth += childWidth;
+    //     childPositions.push({ id: childId, width: childWidth });
+    //   }
 
-      positionedMap[nodeId] = { x: depth * spacingX, y: yPos };
-      return subtreeHeight;
-    };
+    //   let xPos;
+    //   if (children.length === 0) {
+    //     // ✅ leaf: 왼쪽부터 순서대로 쌓기
+    //     xPos = currentX;
+    //     currentX += spacingX;
+    //     subtreeWidth = spacingX;
+    //   } else {
+    //     // ✅ 부모는 자식들의 좌우 중앙에 위치
+    //     const left = positionedMap[childPositions[0].id].x;
+    //     const right = positionedMap[childPositions[childPositions.length - 1].id].x;
+    //     xPos = (left + right) / 2;
+    //   }
 
-    const sortedRoots = Object.values(nodeMap)
-      .filter((n) => n && !n.parent)
-      .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+    //   // ✅ depth가 아래로 자라도록 y에 반영
+    //   const yPos = depth * spacingY;
+
+    //   positionedMap[nodeId] = { x: xPos, y: yPos };
+    //   return subtreeWidth;
+    // };
+
+const MIN_NODE_W = 140;
+const MAX_NODE_W = 320;
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+
+const estimateNodeWidth = (label = "") => {
+  const s = String(label);
+  const cjkRegex = /[\u1100-\u11FF\u3130-\u318F\uAC00-\uD7AF\u3040-\u30FF\u31F0-\u31FF\u3400-\u9FFF]/g;
+  const cjk = (s.match(cjkRegex) || []).length;
+  const non = s.length - cjk;
+  const w = 60 + cjk * 14 + non * 8;
+  return clamp(w, MIN_NODE_W, MAX_NODE_W);
+};
+
+const SIBLING_GAP = 36; // 형제 간
+const ROOT_GAP = 120;   // 루트 서브트리 간
+const spacingY = 260;   // 너가 이미 쓰는 값 유지
+
+const getNodeW = (id) => {
+  const measured = nodeSizeMap[id]?.w;
+  if (measured) return measured;
+  return estimateNodeWidth(nodeMap[id]?.keyword);
+};
+
+const subtreeWMemo = {};
+const calcSubtreeW = (id) => {
+  if (subtreeWMemo[id] != null) return subtreeWMemo[id];
+
+  const kids = childrenMap[id] || [];
+  const selfW = getNodeW(id);
+
+  if (!kids.length) return (subtreeWMemo[id] = selfW);
+
+  const kidsTotal =
+    kids.reduce((sum, c) => sum + calcSubtreeW(c), 0) +
+    SIBLING_GAP * (kids.length - 1);
+
+  return (subtreeWMemo[id] = Math.max(selfW, kidsTotal));
+};
+
+const place = (id, depth, left) => {
+  const kids = childrenMap[id] || [];
+  const myW = calcSubtreeW(id);
+
+  // nodeOrigin=[0.5,0.5] => position은 중앙좌표
+  positionedMap[id] = { x: left + myW / 2, y: depth * spacingY };
+
+  if (!kids.length) return;
+
+  const kidsTotal =
+    kids.reduce((sum, c) => sum + calcSubtreeW(c), 0) +
+    SIBLING_GAP * (kids.length - 1);
+
+  let cursor = left + (myW - kidsTotal) / 2;
+  for (const childId of kids) {
+    const cw = calcSubtreeW(childId);
+    place(childId, depth + 1, cursor);
+    cursor += cw + SIBLING_GAP;
+  }
+};
+
+// roots 최신 먼저
+const sortedRoots = Object.values(nodeMap)
+  .filter((n) => n && !n.parent)
+  .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+
+let xCursor = 0;
+for (const r of sortedRoots) {
+  const w = calcSubtreeW(r.id);
+  place(r.id, 0, xCursor);
+  xCursor += w + ROOT_GAP;
+}
+
 
     sortedRoots.forEach((root, idx) => {
       const color = getColor(idx);
       rootColorMap[root.id] = color;
       nodeRootMap[root.id] = root.id;
-      assignPositions(root.id, 0, root.id, color);
+      // assignPositions(root.id, 0, root.id, color);
     });
 
     sortedRoots.forEach((root) => {
@@ -369,8 +483,8 @@ function Graph() {
         type: "tooltipNode",
         data: { label: node.keyword, color: nodeColor, isActive },
         position: positionedMap[id],
-        sourcePosition: "right",
-        targetPosition: "left",
+        sourcePosition: "bottom",
+        targetPosition: "top",
       });
     });
 
@@ -405,7 +519,7 @@ function Graph() {
     setNodes(updatedNodes);
     setEdges(updatedEdges);
     dispatch(setNodeColors(rootColorMap));
-  }, [nodesData, activeNodeIds, contextMode, dispatch]);
+  }, [nodesData, activeNodeIds, contextMode, dispatch, nodeSizeMap]);
 
   useEffect(() => {
     const measure = () => {
@@ -462,6 +576,7 @@ function Graph() {
           nodeTypes={nodeTypes}
           edgeTypes={edgeTypes}
           fitView
+          nodeOrigin={[0.5, 0.5]}
         >
           <Background variant="dots" gap={20} size={1.5} color="#ddd" />
           <Controls />

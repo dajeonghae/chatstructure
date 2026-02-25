@@ -37,6 +37,13 @@ const NodeContent = styled.div`
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
   font-weight: 600;
 
+  max-width: 260px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
+
   &:hover {
     transform: scale(1.05);
     box-shadow: 0 6px 12px rgba(0, 0, 0, 0.2);
@@ -140,12 +147,12 @@ const TooltipNode = ({ data, id }) => {
       </NodeContent>
       <Handle
         type="source"
-        position={Position.Right}
+        position={Position.Bottom}
         style={{ background: data.color}}
       />
       <Handle
         type="target"
-        position={Position.Left}
+        position={Position.Top}
         style={{ background: data.color}}
       />
     </TooltipContainer>
