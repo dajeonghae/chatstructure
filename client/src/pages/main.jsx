@@ -28,7 +28,7 @@ const GraphSection = styled.div`
 const ChatContainer = styled.div`
   display: flex;
   width: 900px;
-  height: 92%;
+  height: 93%;
   margin-top: 20px;
 `;
 

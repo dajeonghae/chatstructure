@@ -7,15 +7,16 @@ import { setCurrentScrolledDialog, resetState} from "../../redux/slices/nodeSlic
 import { parseConversationHistory } from "../../utils/parseConversationHistory.js";
 import {
   buildFullSnapshot,
-  downloadSnapshotFile,   // ← 추가
-  loadSnapshotThunk,      // ← 추가
+  downloadSnapshotFile,
+  loadSnapshotThunk,
   saveSnapshotToProject,
   listProjectSnapshots,
   loadSnapshotFromProjectThunk
 } from "../../utils/snapshotManager.js";
 import { store } from "../../redux/store.js";
 import axios from "axios";
-import DialogPair from "../../components/textBox/DialogPair.jsx"; // 경로에 맞게 수정해주세요
+import DialogPair from "../../components/textBox/DialogPair.jsx";
+import ChatIndex from "./ChatIndex.jsx"; // 👈 ChatIndex 임포트 확인!
 
 const ChatContainer = styled.div`
   display: flex;
@@ -23,6 +24,15 @@ const ChatContainer = styled.div`
   align-items: center;
   width: 100%;
   height: 100%;
+`;
+
+const ChatContentWrapper = styled.div`
+  display: flex;
+  flex-direction: row;
+  width: 100%;
+  flex: 1;
+  overflow: hidden;
+  margin-bottom: 20px;
 `;
 
 const MessagesContainer = styled.div`
@@ -34,23 +44,31 @@ const MessagesContainer = styled.div`
 `;
 
 const InputContainer = styled.div`
+  z-index: 100;
   display: flex;
-  width: 85%;
+  width: 78%;
   min-height: 40px;
   max-height: 120px;
-  align-items: flex-end;         // 버튼과 텍스트에어리어를 아래쪽 정렬
-  justify-content: space-between; // center → space-between
-  padding: 8px 8px 8px 20px;     // 오른쪽 패딩 줄임 (버튼 공간)
-  border-radius: 100px;
+  align-items: flex-end;
+  justify-content: space-between;
+  padding: 8px 8px 8px 20px;
+  
+  /* ✨ 상태에 따라 border-radius 변경 및 부드러운 전환 효과 추가 */
+  border-radius: ${(props) => (props.$isExpanded ? "30px" : "100px")};
+  transition: border-radius 0.2s ease-in-out;
+  
   border: 1px solid rgba(240, 240, 240);
   background-color: #ffffff;
   box-shadow: 0px 8px 24px rgba(149, 157, 165, 0.2);
-  gap: 10px;                     // 텍스트에어리어와 버튼 사이 간격
+  gap: 10px;
+  margin-left: -80px;
 `;
 
 const TextArea = styled.textarea`
-  min-height: 24px;
-  max-height: 96px;              // 컨테이너보다 작게
+  height: 40px; 
+  min-height: 40px; 
+  box-sizing: border-box; 
+  max-height: 100px; 
   flex: 1;
   border: none;
   background-color: transparent;
@@ -58,30 +76,17 @@ const TextArea = styled.textarea`
   font-family: "Pretendard";
   resize: none;
   overflow-y: auto;
-  line-height: 1.2;
-  padding: 2px 20px;                // 심플하게
-  margin: 0;                     // margin-right 제거
+  
+  line-height: 20px; 
+  padding: 10px 15px; 
+  margin: 0;
   
   &:focus {
     outline: none;
   }
   
   &::placeholder {
-    color: #999;                 // placeholder 색상
-  }
-`;
-
-const Input = styled.input`
-  height: 20px;
-  flex: 1;
-  border: none;
-  background-color: #ffffff;
-  margin-right: 10px;
-  font-size: 16px;
-  font-family: "Pretendard";
-
-  &:focus {
-    outline: none;
+    color: #999;
   }
 `;
 
@@ -146,52 +151,59 @@ const SaveButton = styled.button`
   cursor: pointer;
 `;
 
-const RestoreButton = styled(SaveButton)`
-  background-color: #ed8936;
-`;
-
 const ExportButton = styled(SaveButton)`
   background-color: #2d3748;
 `;
 const ImportButton = styled(SaveButton)`
   background-color: #ffffff;
   color: #2d3748;
-  border: 1px solid  #2d3748;
+  border: 1px solid #2d3748;
 `;
 
-
 function Chatbot() {
-  const [messages, setMessages] = useState([]); // 대화 목록을 배열로 보관
-  const [input, setInput] = useState(""); // 입력창 내용을 보관
-  const [currentIndex, setCurrentIndex] = useState(0);  // 현재 활성 대화 인덱스
+  const [messages, setMessages] = useState([]);
+  const [input, setInput] = useState("");
+  const [currentIndex, setCurrentIndex] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
+  const [scrollPercent, setScrollPercent] = useState(100); 
 
-  const messagesEndRef = useRef(null); // 맨 아래로 스크롤
-  const messageRefs = useRef([]);  // 각 메시지 <div> DOM을 배열로 저장. 특정 메시지로 스크롤할 수 있도록 함
-  const fileInputRef = useRef(null)
+  const scrollContainerRef = useRef(null);
+  const messagesEndRef = useRef(null);
+  const messageRefs = useRef([]);
+  const fileInputRef = useRef(null);
   const prevActiveDialogNumbersRef = useRef([]);
 
   const dispatch = useDispatch();
 
   const dialogNumber = useSelector((state) => state.node.dialogCount);
-  const activeDialogNumbers = useSelector((state) => state.node.activeDialogNumbers);  // 활성화된 대화 번호들
+  const activeDialogNumbers = useSelector((state) => state.node.activeDialogNumbers);
   const currentScrolledDialog = useSelector((state) => state.node.currentScrolledDialog);
   const contextMode = useSelector((state) => state.mode.contextMode);
 
-  // 🔥 대화 스크롤 이동 함수
+  const [isExpanded, setIsExpanded] = useState(false); 
+  const textareaRef = useRef(null); 
+
+  const handleScroll = (e) => {
+    const { scrollTop, scrollHeight, clientHeight } = e.target;
+    if (scrollHeight <= clientHeight) {
+      setScrollPercent(100);
+      return;
+    }
+    const percent = (scrollTop / (scrollHeight - clientHeight)) * 100;
+    setScrollPercent(percent);
+  };
+
   const scrollToMessage = (index) => {
     if (messageRefs.current[index]) {
       messageRefs.current[index].scrollIntoView({ behavior: "smooth", block: "center" });
     }
   };
 
-  // 🔥 대화 추가 시 맨 아래로 스크롤
   const scrollToBottom = () => {
     if (messagesEndRef.current) {
       messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
     }
   };
-
 
   useEffect(() => {
     const prevDialogs = prevActiveDialogNumbersRef.current;
@@ -214,7 +226,6 @@ function Chatbot() {
         scrollToMessage(latestIndex);
       }, 0);
     } else if (newlyRemoved.length > 0 && currSorted.length > 0) {
-      // 제거된 번호와 가장 가까운 남은 번호 찾기
       const closest = currSorted.reduce((prev, curr) => {
         return Math.abs(curr - currentScrolledDialog) < Math.abs(prev - currentScrolledDialog)
           ? curr
@@ -223,23 +234,21 @@ function Chatbot() {
 
       dispatch(setCurrentScrolledDialog(closest));
       setCurrentIndex(currSorted.indexOf(closest));
-
-      console.log("🔄 [상태만 갱신] closest:", closest);
     }
 
     prevActiveDialogNumbersRef.current = currDialogs;
   }, [activeDialogNumbers]);
 
-
-  // 🔥 새로운 대화가 추가될 때 아래로 스크롤
   useEffect(() => {
     scrollToBottom();
+    setTimeout(() => {
+      setScrollPercent(100);
+    }, 100);
   }, [messages]);
 
-  // 🔥 화살표 클릭 시 대화 이동
   const moveToMessage = (direction) => {
     const sortedDialogs = [...activeDialogNumbers].sort((a, b) => a - b);
-    const currentScrolled = store.getState().node.currentScrolledDialog; // 최신 기준 상태
+    const currentScrolled = store.getState().node.currentScrolledDialog;
     const currentDialogIndex = sortedDialogs.indexOf(currentScrolled);
     const nextIndex = currentDialogIndex + direction;
 
@@ -253,68 +262,37 @@ function Chatbot() {
   const activeNodeIds = useSelector((state) => state.node.activeNodeIds);
   const currentNodeId = activeNodeIds[activeNodeIds.length - 1] || "root";
 
-  // const handleSaveState = () => {
-  //   const currentState = {
-  //     nodes: store.getState().node.nodes,
-  //     activeNodeIds: store.getState().node.activeNodeIds,
-  //     activeDialogNumbers: store.getState().node.activeDialogNumbers,
-  //     dialogCount: store.getState().node.dialogCount,
-  //     currentScrolledDialog: store.getState().node.currentScrolledDialog, 
-  //     nodeColors: store.getState().node.nodeColors, 
-  //     messages,
-  //   };
-  
-  //   localStorage.setItem("testBackup", JSON.stringify(currentState));
-  //   alert("✅ 상태 저장 완료!");
-  // };
-  
-  // const handleRestoreState = () => {
-  //   const saved = JSON.parse(localStorage.getItem("testBackup"));
-  //   if (!saved) return alert("❌ 저장된 상태가 없습니다.");
-  
-  //   dispatch(resetState(saved));
-  //   setMessages(saved.messages);
-  //   setCurrentIndex(saved.activeDialogNumbers.length - 1);
-  //   dispatch(setCurrentScrolledDialog(saved.activeDialogNumbers[saved.activeDialogNumbers.length - 1]));
-  //   alert("♻️ 상태 복원 완료!");
-  // };
-
-// [+] 스냅샷 JSON 파일로 내보내기
   const handleExportSnapshot = () => {
-    const reduxState = store.getState(); // [+]
+    const reduxState = store.getState();
     const snapshot = buildFullSnapshot(reduxState, messages);
     downloadSnapshotFile(snapshot);
   };
 
-  // [+] 파일 선택창 오픈
   const handleImportClick = () => {
-    fileInputRef.current?.click(); // [+]
+    fileInputRef.current?.click();
   };
 
-  // [+] 스냅샷 JSON 불러오기
   const handleImportSnapshot = async (e) => {
-    const file = e.target.files?.[0]; // [+]
-    e.target.value = ""; // [+]
-    if (!file) return; // [+]
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
     try {
-    const { messages: restored } = await dispatch(loadSnapshotThunk(file));
-    setMessages(restored || []);
-    // 복원 직후 맨 아래로 스크롤
-    setTimeout(() => {
-      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-    }, 0);
-      alert("📦 스냅샷 복원 완료!(JSON)"); // [+]
+      const { messages: restored } = await dispatch(loadSnapshotThunk(file));
+      setMessages(restored || []);
+      setTimeout(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+      }, 0);
+      alert("📦 스냅샷 복 복원 완료!(JSON)");
     } catch (err2) {
-      console.error(err2); // [+]
-      alert("❌ 스냅샷 불러오기 실패 (콘솔 확인)"); // [+]
+      console.error(err2);
+      alert("❌ 스냅샷 불러오기 실패 (콘솔 확인)");
     }
   };
 
-
   const handleSend = async () => {
-    if (input.trim() === "" || isLoading) return; // 로딩 중이면 실행하지 않음
+    if (input.trim() === "" || isLoading) return;
 
-    setIsLoading(true); // 로딩 시작
+    setIsLoading(true);
 
     const userMessage = {
       role: "user",
@@ -325,7 +303,12 @@ function Chatbot() {
 
     let updatedMessages = [...messages, userMessage];
     setMessages(updatedMessages);
+    
     setInput("");
+    setIsExpanded(false);
+    if (textareaRef.current) {
+      textareaRef.current.style.height = "40px";
+    }
 
     try {
       const gptMessageContent = await dispatch(sendMessageToApi(input, updatedMessages));
@@ -340,145 +323,142 @@ function Chatbot() {
     } catch (error) {
       console.error("Error sending message:", error);
     } finally {
-      setIsLoading(false); // 로딩 종료
+      setIsLoading(false);
     }
   };
 
-const handleKeyDown = (e) => {
-  if (e.key === "Enter") {
-    if (e.shiftKey) {
-      // 👉 Shift+Enter: 줄바꿈 허용 (기본 동작 그대로)
-      return;
-    } else {
-      // 👉 그냥 Enter: 전송
-      e.preventDefault(); // 줄바꿈 막기
-      handleSend();
+  const handleKeyDown = (e) => {
+    if (e.key === "Enter") {
+      if (e.shiftKey) {
+        return;
+      } else {
+        e.preventDefault();
+        handleSend();
+      }
     }
-  }
-};
+  };
 
-useEffect(() => {
-  const onReplay = async (e) => {
-    const raw = e?.detail?.text ?? "";
-    if (!raw.trim()) return;
+  useEffect(() => {
+    const onReplay = async (e) => {
+      const raw = e?.detail?.text ?? "";
+      if (!raw.trim()) return;
 
-    const parsed = parseConversationHistory(raw); // [{role, content}, ...]
+      const parsed = parseConversationHistory(raw);
 
-    // user/assistant 페어로 묶기
-    const pairs = [];
-    for (let i = 0; i < parsed.length; i += 2) {
-      const user = parsed[i]?.content ?? "";
-      const assistant = parsed[i + 1]?.content ?? "";
-      if (user) pairs.push({ user, assistant });
-    }
+      const pairs = [];
+      for (let i = 0; i < parsed.length; i += 2) {
+        const user = parsed[i]?.content ?? "";
+        const assistant = parsed[i + 1]?.content ?? "";
+        if (user) pairs.push({ user, assistant });
+      }
 
-    let running = [...messages];
+      let running = [...messages];
 
-    // 시작 신호(선택: 모달에서도 보냄)
-    window.dispatchEvent(new CustomEvent("vis:start"));
-    try {
-      // 턴 순서대로 실행
-      for (const { user, assistant } of pairs) {
-        // 1) 사용자 메시지를 먼저 화면에 붙임
-        const userMessage = {
-          role: "user",
-          content: user,
-          nodeId: currentNodeId,
-          number: running.length + 1,
-        };
-        running = [...running, userMessage];
-        setMessages(running);
-
-        try {
-          // 2) 기존 파이프라인 호출(그래프 갱신 포함)
-          // assistantOverride로 모델 콜 없이 주어진 assistant 텍스트 사용
-          const gptMessageContent = await dispatch(
-            sendMessageToApi(user, running, { assistantOverride: assistant }) // [+]
-          );
-
-          // 3) 어시스턴트 메시지를 화면에 붙임
-          const gptMessage = {
-            role: "assistant",
-            content: gptMessageContent,
+      window.dispatchEvent(new CustomEvent("vis:start"));
+      try {
+        for (const { user, assistant } of pairs) {
+          const userMessage = {
+            role: "user",
+            content: user,
             nodeId: currentNodeId,
             number: running.length + 1,
           };
-          running = [...running, gptMessage];
+          running = [...running, userMessage];
           setMessages(running);
-        } catch (err) {
-          console.error("Replay turn failed:", err);
-          // 실패해도 다음 턴 계속 진행(필요시 여기서 중단하도록 변경 가능)
+
+          try {
+            const gptMessageContent = await dispatch(
+              sendMessageToApi(user, running, { assistantOverride: assistant })
+            );
+
+            const gptMessage = {
+              role: "assistant",
+              content: gptMessageContent,
+              nodeId: currentNodeId,
+              number: running.length + 1,
+            };
+            running = [...running, gptMessage];
+            setMessages(running);
+          } catch (err) {
+            console.error("Replay turn failed:", err);
+          }
         }
+      } finally {
+        window.dispatchEvent(new CustomEvent("vis:done"));
       }
-    } finally {
-      // 완료 신호(항상 보냄) → 모달이 vis:done을 받으면 닫힘
-      window.dispatchEvent(new CustomEvent("vis:done"));
+    };
+
+    window.addEventListener("chat:replay", onReplay);
+    return () => window.removeEventListener("chat:replay", onReplay);
+  }, [dispatch, currentNodeId, messages.length]);
+
+  const handleLoadFromServer = async () => {
+    try {
+      const r = await axios.get("http://localhost:8080/api/chatgraph/get");
+      const snap = r.data?.snapshot;
+      if (!snap) throw new Error("no snapshot returned");
+
+      const { messages: restored } = await dispatch(loadSnapshotThunk(snap));
+      setMessages(restored || []);
+
+      setTimeout(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+      }, 0);
+
+      alert("♻️ 서버에서 스냅샷 불러오기 완료 (chatgraph.json)");
+    } catch (e) {
+      console.error(e);
+      alert("❌ 서버 불러오기 실패 (콘솔 확인)");
     }
   };
 
-  window.addEventListener("chat:replay", onReplay);
-  return () => window.removeEventListener("chat:replay", onReplay);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-}, [dispatch, currentNodeId, messages.length]);
-
-const handleLoadFromServer = async () => {
-  try {
-    const r = await axios.get("http://localhost:8080/api/chatgraph/get");
-    const snap = r.data?.snapshot;
-    if (!snap) throw new Error("no snapshot returned");
-
-    // snapshotManager.loadSnapshotThunk는 File/객체 모두 지원 → 그대로 사용
-    const { messages: restored } = await dispatch(loadSnapshotThunk(snap));
-    setMessages(restored || []);
-
-    // 복원 직후 스크롤
-    setTimeout(() => {
-      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-    }, 0);
-
-    alert("♻️ 서버에서 스냅샷 불러오기 완료 (chatgraph.json)");
-  } catch (e) {
-    console.error(e);
-    alert("❌ 서버 불러오기 실패 (콘솔 확인)");
-  }
-};
-
-const handleInput = (e) => {
-  setInput(e.target.value);
-  
-  // 자동 높이 조절
-  e.target.style.height = 'auto';
-  e.target.style.height = e.target.scrollHeight + 'px';
-};
+  const handleInput = (e) => {
+    setInput(e.target.value);
+    
+    e.target.style.height = '40px'; 
+    
+    const currentScrollHeight = e.target.scrollHeight;
+    
+    if (currentScrollHeight > 45) {
+      setIsExpanded(true);
+      e.target.style.height = currentScrollHeight + 'px';
+    } else {
+      setIsExpanded(false);
+      e.target.style.height = '40px';
+    }
+  };
 
   return (
     <ChatContainer>
-    <MessagesContainer>
-            {(() => {
-              // 메시지를 2개(User, AI) 단위로 묶어주기
-              const pairedMessages = [];
-              for (let i = 0; i < messages.length; i += 2) {
-                pairedMessages.push({
-                  userMsg: messages[i],
-                  aiMsg: messages[i + 1], // 마지막 홀수번째일 경우 undefined (AI 답변 대기중)
-                  userIndex: i,
-                  aiIndex: i + 1,
-                });
-              }
+      <ChatContentWrapper>
+        <MessagesContainer ref={scrollContainerRef} onScroll={handleScroll}>
+          {(() => {
+            const pairedMessages = [];
+            for (let i = 0; i < messages.length; i += 2) {
+              pairedMessages.push({
+                userMsg: messages[i],
+                aiMsg: messages[i + 1],
+                userIndex: i,
+                aiIndex: i + 1,
+              });
+            }
 
-              return pairedMessages.map((pair, index) => (
-                <DialogPair
-                  key={index}
-                  userMsg={pair.userMsg}
-                  aiMsg={pair.aiMsg}
-                  // Chatbot의 스크롤 관리를 위해 각 메시지 div에 ref를 다시 연결해줍니다.
-                  userRef={(el) => (messageRefs.current[pair.userIndex] = el)}
-                  aiRef={(el) => { if (pair.aiMsg) messageRefs.current[pair.aiIndex] = el; }}
-                />
-              ));
-            })()}
-            <div ref={messagesEndRef} />
-      </MessagesContainer>
+            return pairedMessages.map((pair, index) => (
+              <DialogPair
+                key={index}
+                userMsg={pair.userMsg}
+                aiMsg={pair.aiMsg}
+                userRef={(el) => (messageRefs.current[pair.userIndex] = el)}
+                aiRef={(el) => { if (pair.aiMsg) messageRefs.current[pair.aiIndex] = el; }}
+              />
+            ));
+          })()}
+          <div ref={messagesEndRef} />
+        </MessagesContainer>
+
+        <ChatIndex scrollPercent={scrollPercent} />
+      </ChatContentWrapper>
+
       {activeDialogNumbers.length > 0 && (
         <ArrowContainer>
           {(() => {
@@ -509,13 +489,19 @@ const handleInput = (e) => {
           onChange={handleImportSnapshot}
         />
       </TopButtonContainer>
-      <InputContainer style={{ opacity: isLoading ? 0.5 : 1, pointerEvents: isLoading ? 'none' : 'auto' }}>
+      
+      <InputContainer 
+        $isExpanded={isExpanded}
+        style={{ opacity: isLoading ? 0.5 : 1, pointerEvents: isLoading ? 'none' : 'auto' }}
+      >
         <TextArea
+          ref={textareaRef} 
           value={input}
           onChange={handleInput}
           onKeyDown={handleKeyDown}
           placeholder="메세지 입력하기"
           disabled={isLoading}
+          rows={1} 
         />
         <Button onClick={handleSend} disabled={isLoading}>
           <span 
@@ -529,6 +515,5 @@ const handleInput = (e) => {
     </ChatContainer>
   );
 }
-
 
 export default Chatbot;
