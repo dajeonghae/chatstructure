@@ -129,26 +129,47 @@ function Chatbot() {
 
     const totalScrollableHeight = Math.max(1, container.scrollHeight - container.clientHeight);
 
+    const containerRect = container.getBoundingClientRect();
+
     const markers = topicNodes
       .map((node) => {
         const dialogNumbers = Object.keys(node.dialog || {}).map(Number);
         if (dialogNumbers.length === 0) return null;
 
         const firstDialogNumber = Math.min(...dialogNumbers);
-
         const userMessageIndex = (firstDialogNumber - 1) * 2;
         const targetEl = messageRefs.current[userMessageIndex];
 
         if (!targetEl) return null;
 
-        const containerRect = container.getBoundingClientRect();
         const targetRect = targetEl.getBoundingClientRect();
         const topPx = targetRect.top - containerRect.top + container.scrollTop;
-
         const topPercent = Math.max(
           0,
           Math.min(100, (topPx / totalScrollableHeight) * 100)
         );
+
+        const segments = dialogNumbers
+          .map((num) => {
+            const msgIndex = (num - 1) * 2;
+            const userEl = messageRefs.current[msgIndex];
+            if (!userEl) return null;
+            const aiEl = messageRefs.current[msgIndex + 1];
+
+            const userRect = userEl.getBoundingClientRect();
+            const topPxSeg = userRect.top - containerRect.top + container.scrollTop;
+
+            const bottomEl = aiEl || userEl;
+            const bottomRect = bottomEl.getBoundingClientRect();
+            const bottomPxSeg = bottomRect.bottom - containerRect.top + container.scrollTop;
+
+            return {
+              topPercent: Math.max(0, Math.min(100, (topPxSeg / totalScrollableHeight) * 100)),
+              bottomPercent: Math.max(0, Math.min(100, (bottomPxSeg / totalScrollableHeight) * 100)),
+              messageIndex: msgIndex,
+            };
+          })
+          .filter(Boolean);
 
         return {
           nodeId: node.id,
@@ -156,6 +177,7 @@ function Chatbot() {
           color: nodeColors[node.id] || "#A5A7AA",
           topPercent,
           messageIndex: userMessageIndex,
+          segments,
         };
       })
       .filter(Boolean);
