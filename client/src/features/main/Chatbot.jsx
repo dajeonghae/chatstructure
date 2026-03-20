@@ -30,15 +30,15 @@ const ChatContainer = styled.div`
   flex: 1;
   height: 100%;
   position: relative;
+  padding: 20px 0 50px;
+  box-sizing: border-box;
 `;
 
 const MessagesContainer = styled.div`
   flex: 1;
-  width: 93%;
-  padding: 20px;
+  width: 100%;
   overflow-y: auto;
   scrollbar-width: none;
-  margin-bottom: 2px;
 `;
 
 const TopButtonContainer = styled.div`
@@ -48,6 +48,7 @@ const TopButtonContainer = styled.div`
   display: flex;
   flex-direction: column;
   gap: 10px;
+  z-index: 100;
 `;
 
 const SaveButton = styled.button`

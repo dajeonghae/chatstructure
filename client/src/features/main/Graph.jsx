@@ -46,7 +46,6 @@ const Page = styled.div`
   flex-direction: column;
   width: 100%;
   height: 100%;
-  gap: 12px;
 `;
 
 const GraphPanel = styled.div`

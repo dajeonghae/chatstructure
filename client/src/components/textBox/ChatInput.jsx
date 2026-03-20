@@ -4,7 +4,7 @@ import styled from "styled-components";
 const InputContainer = styled.div`
   z-index: 100;
   display: flex;
-  width: 87%;
+  width: 95%;
   min-height: 40px;
   max-height: 120px;
   align-items: flex-end;
@@ -18,7 +18,8 @@ const InputContainer = styled.div`
   background-color: #ffffff;
   box-shadow: 0px 8px 24px rgba(149, 157, 165, 0.2);
   gap: 10px;
-  margin-left: -8px;
+  margin-left: -20px;
+  margin-bottom: 10px;
 `;
 
 const TextArea = styled.textarea`

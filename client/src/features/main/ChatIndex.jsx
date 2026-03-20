@@ -4,14 +4,19 @@ import { setSelectedIndexNode } from "../../redux/slices/nodeSlice";
 import styled from "styled-components";
 
 const IndexWrapper = styled.div`
-  width: 180px;
-  height: 90%;
-  padding: 24px 0;
+  width: 220px;
+  align-self: stretch;
+  flex-shrink: 0;
+  padding: 28px 0 28px 20px;
   box-sizing: border-box;
   display: flex;
-  justify-content: flex-start;
   align-items: flex-start;
-  margin-left: 12px;
+  border-left: 1.5px solid #E8EAED;
+  overflow: visible;
+  transform: translateX(100px);
+  box-shadow: 18px 0px 24px -10px rgba(149, 157, 165, 0.15);
+  z-index: 10;
+  position: relative;
 `;
 
 const Track = styled.div`
@@ -36,7 +41,6 @@ const SegmentHighlight = styled.div`
 const MarkerRow = styled.div`
   position: absolute;
   left: -5px;
-  transform: translateY(-50%);
   display: flex;
   align-items: center;
   gap: 10px;
