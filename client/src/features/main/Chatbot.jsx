@@ -112,7 +112,6 @@ function Chatbot() {
   const activeNodeIds = useSelector((state) => state.node.activeNodeIds);
   const nodes = useSelector((state) => state.node.nodes);
   const nodeColors = useSelector((state) => state.node.nodeColors);
-  const selectedGraphNodeId = useSelector((state) => state.node.selectedGraphNodeId);
   const contextMode = useSelector((state) => state.mode.contextMode);
 
   const currentNodeId = activeNodeIds[activeNodeIds.length - 1] || "root";
@@ -269,38 +268,9 @@ function Chatbot() {
       .filter(Boolean);
   };
 
-  // 기본 모드: 단일 노드 클릭
+  // 활성화된 노드 → ChatIndex highlight + 스크롤 (모든 모드 통합)
   useEffect(() => {
-    if (!selectedGraphNodeId) {
-      if (activeNodeIds.length === 0) { setGraphNodeSegments([]); setGraphTopicNodeId(null); }
-      return;
-    }
-    const container = scrollContainerRef.current;
-    if (!container) return;
-    const node = nodes[selectedGraphNodeId];
-    if (!node) return;
-
-    let cur = node;
-    while (cur && cur.parent && cur.parent !== "root") cur = nodes[cur.parent];
-    setGraphNodeColor((cur?.id && nodeColors[cur.id]) || "#A5A7AA");
-    setGraphTopicNodeId(cur?.id || null);
-
-    const dialogNumbers = Object.keys(node.dialog || {}).map(Number).sort((a, b) => a - b);
-    const ownedSet = new Set(dialogNumbers);
-    const raw = computeSegmentsForDialogs(dialogNumbers, container);
-    const segs = mergeSegments(raw, (prev, curr) => {
-      for (let d = prev.dialogNum + 1; d < curr.dialogNum; d++) {
-        if (!ownedSet.has(d)) return false;
-      }
-      return true;
-    });
-    setGraphNodeSegments(segs);
-    if (segs.length > 0) setTimeout(() => scrollToMessage(segs[0].messageIndex), 0);
-  }, [selectedGraphNodeId, nodes, messages]);
-
-  // linear/tree 모드: 여러 노드 활성화
-  useEffect(() => {
-    if (contextMode || selectedGraphNodeId) return;
+    if (contextMode) return;
     if (activeNodeIds.length === 0) {
       setGraphNodeSegments([]);
       setGraphTopicNodeId(null);
@@ -333,7 +303,7 @@ function Chatbot() {
     setGraphTopicNodeId(cur?.id || null);
 
     if (segs.length > 0) setTimeout(() => scrollToMessage(segs[0].messageIndex), 0);
-  }, [activeNodeIds, nodes, messages, contextMode, selectedGraphNodeId]);
+  }, [activeNodeIds, nodes, messages, contextMode]);
 
   useEffect(() => {
     const prevDialogs = prevActiveDialogNumbersRef.current;

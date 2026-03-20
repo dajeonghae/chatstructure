@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useDispatch, useSelector } from "react-redux";
-import { setSelectedIndexNode } from "../../redux/slices/nodeSlice";
+import { setSelectedIndexNode, toggleActiveNode } from "../../redux/slices/nodeSlice";
 import styled from "styled-components";
 
 const IndexWrapper = styled.div`
@@ -108,7 +108,7 @@ const ProgressDot = styled.div`
 const ChatIndex = ({ scrollPercent, markers = [], graphNodeSegments = [], graphNodeColor = "#A5A7AA", graphTopicNodeId = null, onMarkerClick }) => {
   const dispatch = useDispatch();
   const selectedNodeId = useSelector((state) => state.node.selectedIndexNodeId);
-  const selectedGraphNodeId = useSelector((state) => state.node.selectedGraphNodeId);
+  const activeNodeIds = useSelector((state) => state.node.activeNodeIds);
 
   const [animatingSegments, setAnimatingSegments] = useState([]);
   const clearTimerRef = useRef(null);
@@ -159,7 +159,7 @@ const ChatIndex = ({ scrollPercent, markers = [], graphNodeSegments = [], graphN
       return;
     }
     cancelClear();
-    const key = selectedGraphNodeId || "active";
+    const key = "active";
     setTimeout(() => {
       setAnimatingSegments(graphNodeSegments.map((s, i) => ({
         key: `${key}-${i}`, color: graphNodeColor, top: s.topPercent, height: 0,
@@ -193,6 +193,7 @@ const ChatIndex = ({ scrollPercent, markers = [], graphNodeSegments = [], graphN
   })();
 
   const handleMarkerClick = (marker) => {
+    activeNodeIds.forEach((id) => dispatch(toggleActiveNode(id)));
     if (selectedNodeId === marker.nodeId) {
       dispatch(setSelectedIndexNode(null));
     } else {
