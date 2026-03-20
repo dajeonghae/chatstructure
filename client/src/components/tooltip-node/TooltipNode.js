@@ -51,7 +51,7 @@ const getAllParentNodes = (nodeId, nodesData) => {
   let currentNode = nodesData[nodeId];
   const parentNodes = [];
 
-  while (currentNode && currentNode.parent) {
+  while (currentNode && currentNode.parent && currentNode.parent !== "root") {
     if (!nodesData[currentNode.parent]) break;
     parentNodes.push(currentNode.parent);
     currentNode = nodesData[currentNode.parent];

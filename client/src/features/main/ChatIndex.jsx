@@ -105,7 +105,7 @@ const ProgressDot = styled.div`
   box-shadow: 0 0 0 2px #fff, 0 0 0 3px #c92a2a;
 `;
 
-const ChatIndex = ({ scrollPercent, markers = [], graphNodeSegments = [], graphNodeColor = "#A5A7AA", graphTopicNodeId = null, onMarkerClick }) => {
+const ChatIndex = ({ scrollPercent, markers = [], graphNodeSegments = [], graphNodeColor = "#A5A7AA", graphTopicNodeId = null, allTopicsHighlighted = false, onMarkerClick }) => {
   const dispatch = useDispatch();
   const selectedNodeId = useSelector((state) => state.node.selectedIndexNodeId);
   const activeNodeIds = useSelector((state) => state.node.activeNodeIds);
@@ -152,10 +152,32 @@ const ChatIndex = ({ scrollPercent, markers = [], graphNodeSegments = [], graphN
     }, 10);
   }, [selectedNodeId, markers]);
 
+  // root 클릭 → 모든 topic 각자의 색으로 highlight
+  useEffect(() => {
+    if (!allTopicsHighlighted || markers.length === 0) {
+      if (!allTopicsHighlighted && graphNodeSegments.length === 0 && !selectedNodeId) animateOut();
+      return;
+    }
+    cancelClear();
+    setAnimatingSegments(markers.flatMap((m) =>
+      m.segments.map((s, i) => ({ key: `all-${m.nodeId}-${i}`, color: m.color, top: s.topPercent, height: 0 }))
+    ));
+    setTimeout(() => {
+      setAnimatingSegments(markers.flatMap((m) =>
+        m.segments.map((s, i) => ({
+          key: `all-${m.nodeId}-${i}`,
+          color: m.color,
+          top: s.topPercent,
+          height: Math.max((s.bottomPercent ?? s.topPercent) - s.topPercent, 0.5),
+        }))
+      ));
+    }, 10);
+  }, [allTopicsHighlighted, markers]);
+
   // 그래프 노드 클릭 (기본/linear/tree 모드) → segments 애니메이션
   useEffect(() => {
     if (graphNodeSegments.length === 0) {
-      if (!selectedNodeId) animateOut();
+      if (!selectedNodeId && !allTopicsHighlighted) animateOut();
       return;
     }
     cancelClear();
@@ -220,7 +242,7 @@ const ChatIndex = ({ scrollPercent, markers = [], graphNodeSegments = [], graphN
         ))}
 
         {markers.map((marker) => {
-          const isSelected = selectedNodeId === marker.nodeId || graphTopicNodeId === marker.nodeId;
+          const isSelected = selectedNodeId === marker.nodeId || graphTopicNodeId === marker.nodeId || allTopicsHighlighted;
           return (
             <MarkerRow
               key={marker.nodeId}

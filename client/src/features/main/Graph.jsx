@@ -434,6 +434,9 @@ function Graph() {
       });
     });
 
+    // root 노드는 항상 중립 색상
+    rootColorMap["root"] = "#606368";
+
     // 활성화된 노드들 배경 — 각 노드마다 개별 rect (모든 모드 통합)
     const positionedActiveIds = activeNodeIds.filter((id) => positionedMap[id]);
     if (!contextMode && positionedActiveIds.length > 0) {

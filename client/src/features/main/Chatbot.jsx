@@ -97,6 +97,7 @@ function Chatbot() {
   const [graphNodeSegments, setGraphNodeSegments] = useState([]);
   const [graphNodeColor, setGraphNodeColor] = useState("#A5A7AA");
   const [graphTopicNodeId, setGraphTopicNodeId] = useState(null);
+  const [allTopicsHighlighted, setAllTopicsHighlighted] = useState(false);
 
   const scrollContainerRef = useRef(null);
   const messagesEndRef = useRef(null);
@@ -274,8 +275,19 @@ function Chatbot() {
     if (activeNodeIds.length === 0) {
       setGraphNodeSegments([]);
       setGraphTopicNodeId(null);
+      setAllTopicsHighlighted(false);
       return;
     }
+
+    // root 클릭 → 모든 topic highlight (ChatIndex가 markers 직접 사용)
+    if (activeNodeIds.includes("root")) {
+      setGraphNodeSegments([]);
+      setGraphTopicNodeId(null);
+      setAllTopicsHighlighted(true);
+      return;
+    }
+
+    setAllTopicsHighlighted(false);
     const container = scrollContainerRef.current;
     if (!container) return;
 
@@ -608,6 +620,7 @@ function Chatbot() {
         graphNodeSegments={graphNodeSegments}
         graphNodeColor={graphNodeColor}
         graphTopicNodeId={graphTopicNodeId}
+        allTopicsHighlighted={allTopicsHighlighted}
         onMarkerClick={handleMarkerClick}
       />
     </LayoutWrapper>
