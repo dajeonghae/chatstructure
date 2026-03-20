@@ -225,6 +225,7 @@ function Graph() {
   const contextMode = useSelector((state) => state.mode.contextMode);
   const nodeColors = useSelector((state) => state.node.nodeColors) || {};
   const selectedIndexNodeId = useSelector((state) => state.node.selectedIndexNodeId);
+  const selectedGraphNodeId = useSelector((state) => state.node.selectedGraphNodeId);
 
   const [helpersHeight, setHelpersHeight] = useState(0);
   const helpersInnerRef = useRef(null);
@@ -434,6 +435,61 @@ function Graph() {
       });
     });
 
+    // 단일 노드 배경 (기본 모드 노드 클릭)
+    if (!contextMode && selectedGraphNodeId && positionedMap[selectedGraphNodeId]) {
+      const pad = 24;
+      const nodeH = 44;
+      const x = positionedMap[selectedGraphNodeId].x;
+      const y = positionedMap[selectedGraphNodeId].y;
+      const str = String(nodeMap[selectedGraphNodeId]?.keyword || "");
+      let w = 0;
+      for (let i = 0; i < str.length; i++) {
+        const c = str.charCodeAt(i);
+        if (c === 32) w += 14 * 0.3;
+        else if (c >= 0xac00 && c <= 0xd7a3) w += 14 * 0.95;
+        else w += 14 * 0.6;
+      }
+      const nodeW = w + 44;
+      const bgColor = rootColorMap[nodeRootMap[selectedGraphNodeId]] || "#888";
+      updatedNodes.push({
+        id: "__graph_bg_selected__",
+        type: "topicBg",
+        data: { color: bgColor },
+        position: { x: x - pad, y: y - pad },
+        style: { width: nodeW + pad * 2, height: nodeH + pad * 2, zIndex: -1 },
+        draggable: false, selectable: false, connectable: false, zIndex: -1,
+      });
+    }
+
+    // 활성화된 노드들 배경 (linear/tree 모드 선택) — 각 노드마다 개별 rect
+    const positionedActiveIds = activeNodeIds.filter((id) => positionedMap[id]);
+    if (!contextMode && positionedActiveIds.length > 0) {
+      const pad = 24;
+      const nodeH = 44;
+      positionedActiveIds.forEach((id) => {
+        const x = positionedMap[id].x;
+        const y = positionedMap[id].y;
+        const str = String(nodeMap[id]?.keyword || "");
+        let w = 0;
+        for (let i = 0; i < str.length; i++) {
+          const c = str.charCodeAt(i);
+          if (c === 32) w += 14 * 0.3;
+          else if (c >= 0xac00 && c <= 0xd7a3) w += 14 * 0.95;
+          else w += 14 * 0.6;
+        }
+        const nodeW = w + 44;
+        const bgColor = rootColorMap[nodeRootMap[id]] || "#888";
+        updatedNodes.push({
+          id: `__active_bg_${id}__`,
+          type: "topicBg",
+          data: { color: bgColor },
+          position: { x: x - pad, y: y - pad },
+          style: { width: nodeW + pad * 2, height: nodeH + pad * 2, zIndex: -1 },
+          draggable: false, selectable: false, connectable: false, zIndex: -1,
+        });
+      });
+    }
+
     // 선택 토픽 배경 노드
     if (selectedIndexNodeId) {
       const topicNodeIds = Object.keys(nodeRootMap).filter(
@@ -485,7 +541,7 @@ function Graph() {
       updatedNodes.push({
         id,
         type: "tooltipNode",
-        data: { label: node.keyword, color: nodeColor, isActive, isIndexHighlighted: isNodeHighlighted },
+        data: { label: node.keyword, color: nodeColor, darkerColor: dullify(nodeColor, 0.35), isActive, isIndexHighlighted: isNodeHighlighted },
         position: positionedMap[id],
         sourcePosition: "right",
         targetPosition: "left",
@@ -537,7 +593,7 @@ function Graph() {
     setNodes(updatedNodes);
     setEdges(updatedEdges);
     dispatch(setNodeColors(rootColorMap));
-  }, [nodesData, activeNodeIds, contextMode, selectedIndexNodeId, dispatch]);
+  }, [nodesData, activeNodeIds, contextMode, selectedIndexNodeId, selectedGraphNodeId, dispatch]);
 
   useEffect(() => {
     const measure = () => {

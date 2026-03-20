@@ -16,6 +16,23 @@ import ChatIndex from "./ChatIndex.jsx";
 import ChatInput from "../../components/textBox/ChatInput.jsx";
 import TopButton from "../../components/button/TopButton.jsx";
 
+// rawSegments에서 canMerge 조건 만족하는 연속 항목을 하나의 segment로 합침
+const mergeSegments = (rawSegments, canMerge) => {
+  if (!rawSegments.length) return [];
+  const segments = [];
+  let group = { ...rawSegments[0] };
+  for (let i = 1; i < rawSegments.length; i++) {
+    if (canMerge(rawSegments[i - 1], rawSegments[i])) {
+      group.bottomPercent = rawSegments[i].bottomPercent;
+    } else {
+      segments.push(group);
+      group = { ...rawSegments[i] };
+    }
+  }
+  segments.push(group);
+  return segments;
+};
+
 const LayoutWrapper = styled.div`
   display: flex;
   flex-direction: row;
@@ -30,7 +47,7 @@ const ChatContainer = styled.div`
   flex: 1;
   height: 100%;
   position: relative;
-  padding: 20px 90px 50px;
+  padding: 20px 30px 70px 120px;
   box-sizing: border-box;
 `;
 
@@ -77,6 +94,9 @@ function Chatbot() {
   const [scrollPercent, setScrollPercent] = useState(100);
   const [isExpanded, setIsExpanded] = useState(false);
   const [topicMarkers, setTopicMarkers] = useState([]);
+  const [graphNodeSegments, setGraphNodeSegments] = useState([]);
+  const [graphNodeColor, setGraphNodeColor] = useState("#A5A7AA");
+  const [graphTopicNodeId, setGraphTopicNodeId] = useState(null);
 
   const scrollContainerRef = useRef(null);
   const messagesEndRef = useRef(null);
@@ -92,6 +112,8 @@ function Chatbot() {
   const activeNodeIds = useSelector((state) => state.node.activeNodeIds);
   const nodes = useSelector((state) => state.node.nodes);
   const nodeColors = useSelector((state) => state.node.nodeColors);
+  const selectedGraphNodeId = useSelector((state) => state.node.selectedGraphNodeId);
+  const contextMode = useSelector((state) => state.mode.contextMode);
 
   const currentNodeId = activeNodeIds[activeNodeIds.length - 1] || "root";
 
@@ -132,12 +154,35 @@ function Chatbot() {
 
     const containerRect = container.getBoundingClientRect();
 
+    const getAllDescendantDialogs = (topicNode) => {
+      const result = new Set();
+      const queue = [topicNode.id];
+      while (queue.length) {
+        const nodeId = queue.shift();
+        const n = nodes[nodeId];
+        if (!n) continue;
+        Object.keys(n.dialog || {}).map(Number).forEach((d) => result.add(d));
+        (n.children || []).forEach((childId) => queue.push(childId));
+      }
+      return [...result];
+    };
+
+    // 토픽별 dialog 소유 맵 (다른 토픽이 중간에 있는지 확인용)
+    const dialogTopicMap = {};
+    topicNodes.forEach((tn) => {
+      getAllDescendantDialogs(tn).forEach((d) => {
+        if (!dialogTopicMap[d]) dialogTopicMap[d] = [];
+        dialogTopicMap[d].push(tn.id);
+      });
+    });
+
     const markers = topicNodes
       .map((node) => {
-        const dialogNumbers = Object.keys(node.dialog || {}).map(Number);
+        const dialogNumbers = getAllDescendantDialogs(node);
         if (dialogNumbers.length === 0) return null;
 
-        const firstDialogNumber = Math.min(...dialogNumbers);
+        const sorted = [...dialogNumbers].sort((a, b) => a - b);
+        const firstDialogNumber = sorted[0];
         const userMessageIndex = (firstDialogNumber - 1) * 2;
         const targetEl = messageRefs.current[userMessageIndex];
 
@@ -150,7 +195,8 @@ function Chatbot() {
           Math.min(100, (topPx / totalScrollableHeight) * 100)
         );
 
-        const segments = dialogNumbers
+        // 각 dialog의 위치 계산
+        const rawSegments = sorted
           .map((num) => {
             const msgIndex = (num - 1) * 2;
             const userEl = messageRefs.current[msgIndex];
@@ -165,12 +211,21 @@ function Chatbot() {
             const bottomPxSeg = bottomRect.bottom - containerRect.top + container.scrollTop;
 
             return {
+              dialogNum: num,
               topPercent: Math.max(0, Math.min(100, (topPxSeg / totalScrollableHeight) * 100)),
               bottomPercent: Math.max(0, Math.min(100, (bottomPxSeg / totalScrollableHeight) * 100)),
               messageIndex: msgIndex,
             };
           })
           .filter(Boolean);
+
+        // 사이에 다른 토픽 없으면 병합
+        const segments = mergeSegments(rawSegments, (prev, curr) => {
+          for (let d = prev.dialogNum + 1; d < curr.dialogNum; d++) {
+            if ((dialogTopicMap[d] || []).some((t) => t !== node.id)) return false;
+          }
+          return true;
+        });
 
         return {
           nodeId: node.id,
@@ -189,6 +244,96 @@ function Chatbot() {
   const handleMarkerClick = (messageIndex) => {
     scrollToMessage(messageIndex);
   };
+
+  const computeSegmentsForDialogs = (dialogNumbers, container) => {
+    const totalScrollableHeight = Math.max(1, container.scrollHeight - container.clientHeight);
+    const containerRect = container.getBoundingClientRect();
+    return dialogNumbers
+      .map((num) => {
+        const msgIndex = (num - 1) * 2;
+        const userEl = messageRefs.current[msgIndex];
+        if (!userEl) return null;
+        const aiEl = messageRefs.current[msgIndex + 1];
+        const userRect = userEl.getBoundingClientRect();
+        const topPxSeg = userRect.top - containerRect.top + container.scrollTop;
+        const bottomEl = aiEl || userEl;
+        const bottomRect = bottomEl.getBoundingClientRect();
+        const bottomPxSeg = bottomRect.bottom - containerRect.top + container.scrollTop;
+        return {
+          dialogNum: num,
+          topPercent: Math.max(0, Math.min(100, (topPxSeg / totalScrollableHeight) * 100)),
+          bottomPercent: Math.max(0, Math.min(100, (bottomPxSeg / totalScrollableHeight) * 100)),
+          messageIndex: msgIndex,
+        };
+      })
+      .filter(Boolean);
+  };
+
+  // 기본 모드: 단일 노드 클릭
+  useEffect(() => {
+    if (!selectedGraphNodeId) {
+      if (activeNodeIds.length === 0) { setGraphNodeSegments([]); setGraphTopicNodeId(null); }
+      return;
+    }
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    const node = nodes[selectedGraphNodeId];
+    if (!node) return;
+
+    let cur = node;
+    while (cur && cur.parent && cur.parent !== "root") cur = nodes[cur.parent];
+    setGraphNodeColor((cur?.id && nodeColors[cur.id]) || "#A5A7AA");
+    setGraphTopicNodeId(cur?.id || null);
+
+    const dialogNumbers = Object.keys(node.dialog || {}).map(Number).sort((a, b) => a - b);
+    const ownedSet = new Set(dialogNumbers);
+    const raw = computeSegmentsForDialogs(dialogNumbers, container);
+    const segs = mergeSegments(raw, (prev, curr) => {
+      for (let d = prev.dialogNum + 1; d < curr.dialogNum; d++) {
+        if (!ownedSet.has(d)) return false;
+      }
+      return true;
+    });
+    setGraphNodeSegments(segs);
+    if (segs.length > 0) setTimeout(() => scrollToMessage(segs[0].messageIndex), 0);
+  }, [selectedGraphNodeId, nodes, messages]);
+
+  // linear/tree 모드: 여러 노드 활성화
+  useEffect(() => {
+    if (contextMode || selectedGraphNodeId) return;
+    if (activeNodeIds.length === 0) {
+      setGraphNodeSegments([]);
+      setGraphTopicNodeId(null);
+      return;
+    }
+    const container = scrollContainerRef.current;
+    if (!container) return;
+
+    const allDialogNumbers = [];
+    activeNodeIds.forEach((nodeId) => {
+      const node = nodes[nodeId];
+      if (!node) return;
+      Object.keys(node.dialog || {}).map(Number).forEach((d) => allDialogNumbers.push(d));
+    });
+    allDialogNumbers.sort((a, b) => a - b);
+
+    const ownedSet = new Set(allDialogNumbers);
+    const raw = computeSegmentsForDialogs(allDialogNumbers, container);
+    const segs = mergeSegments(raw, (prev, curr) => {
+      for (let d = prev.dialogNum + 1; d < curr.dialogNum; d++) {
+        if (!ownedSet.has(d)) return false;
+      }
+      return true;
+    });
+    setGraphNodeSegments(segs);
+
+    let cur = nodes[activeNodeIds[0]];
+    while (cur && cur.parent && cur.parent !== "root") cur = nodes[cur.parent];
+    setGraphNodeColor((cur?.id && nodeColors[cur.id]) || "#A5A7AA");
+    setGraphTopicNodeId(cur?.id || null);
+
+    if (segs.length > 0) setTimeout(() => scrollToMessage(segs[0].messageIndex), 0);
+  }, [activeNodeIds, nodes, messages, contextMode, selectedGraphNodeId]);
 
   useEffect(() => {
     const prevDialogs = prevActiveDialogNumbersRef.current;
@@ -490,6 +635,9 @@ function Chatbot() {
       <ChatIndex
         scrollPercent={scrollPercent}
         markers={topicMarkers}
+        graphNodeSegments={graphNodeSegments}
+        graphNodeColor={graphNodeColor}
+        graphTopicNodeId={graphTopicNodeId}
         onMarkerClick={handleMarkerClick}
       />
     </LayoutWrapper>

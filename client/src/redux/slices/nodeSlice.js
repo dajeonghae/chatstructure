@@ -28,6 +28,7 @@ const nodeSlice = createSlice({
     dialogCount: 1,
     currentScrolledDialog: null,
     selectedIndexNodeId: null,
+    selectedGraphNodeId: null,
     nodeColors: {},
   },
 
@@ -224,6 +225,12 @@ const nodeSlice = createSlice({
 
     setSelectedIndexNode: (state, action) => {
       state.selectedIndexNodeId = action.payload;
+      state.selectedGraphNodeId = null;
+    },
+
+    setSelectedGraphNode: (state, action) => {
+      state.selectedGraphNodeId = action.payload;
+      state.selectedIndexNodeId = null;
     },
 
     resetState: (state, action) => {
@@ -248,5 +255,5 @@ const nodeSlice = createSlice({
   },
 });
 
-export const { toggleActiveDialog, toggleActiveNode, addOrUpdateNode, setParentNode, applyEmbeddingUpdate, setCurrentScrolledDialog, setSelectedIndexNode, resetState, setNodeKeywords } = nodeSlice.actions;
+export const { toggleActiveDialog, toggleActiveNode, addOrUpdateNode, setParentNode, applyEmbeddingUpdate, setCurrentScrolledDialog, setSelectedIndexNode, setSelectedGraphNode, resetState, setNodeKeywords } = nodeSlice.actions;
 export default nodeSlice.reducer;

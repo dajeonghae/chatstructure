@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react";
-import { useDispatch } from "react-redux";
+import { useState, useEffect, useRef } from "react";
+import { useDispatch, useSelector } from "react-redux";
 import { setSelectedIndexNode } from "../../redux/slices/nodeSlice";
 import styled from "styled-components";
 
@@ -36,7 +36,7 @@ const TrackSegment = styled.div`
 const SegmentHighlight = styled.div`
   position: absolute;
   left: -4px; 
-  width: 6px; 
+  width: 7px; 
   border-radius: 3px; 
   background-color: ${(props) => props.color};
   z-index: 1;
@@ -105,45 +105,75 @@ const ProgressDot = styled.div`
   box-shadow: 0 0 0 2px #fff, 0 0 0 3px #c92a2a;
 `;
 
-const ChatIndex = ({ scrollPercent, markers = [], onMarkerClick }) => {
+const ChatIndex = ({ scrollPercent, markers = [], graphNodeSegments = [], graphNodeColor = "#A5A7AA", graphTopicNodeId = null, onMarkerClick }) => {
   const dispatch = useDispatch();
-  const [selectedNodeId, setSelectedNodeId] = useState(null);
+  const selectedNodeId = useSelector((state) => state.node.selectedIndexNodeId);
+  const selectedGraphNodeId = useSelector((state) => state.node.selectedGraphNodeId);
 
-  // 애니메이션 포인트 2: 현재 그려지고 있는 트랙들의 상태를 관리하는 새로운 State
   const [animatingSegments, setAnimatingSegments] = useState([]);
+  const clearTimerRef = useRef(null);
 
-  // 애니메이션 포인트 3: 클릭한 마커가 바뀔 때마다 애니메이션 트리거
-useEffect(() => {
-    setAnimatingSegments([]);
-    
-    const newSelectedMarker = markers.find((m) => m.nodeId === selectedNodeId);
-    
-    if (newSelectedMarker) {
-      const color = newSelectedMarker.color;
-      
-      // A. 시작 상태: 각 영역의 '원래 시작점(top)'에서 '높이 0'으로 시작
-      const initialStates = newSelectedMarker.segments.map((s, i) => ({
-        key: `${newSelectedMarker.nodeId}-${i}`,
-        color,
-        top: s.topPercent, // 마커 위치가 아닌, 각 영역의 시작점!
-        height: 0,         // 처음엔 보이지 않음 (높이 0)
-      }));
-      
-      setAnimatingSegments(initialStates);
-      
-      // B. 도착 상태: 리액트 렌더링 직후 높이를 원래 크기로 주욱 늘림
-      setTimeout(() => {
-        const finalStates = newSelectedMarker.segments.map((s, i) => ({
-          key: `${newSelectedMarker.nodeId}-${i}`,
-          color,
-          top: s.topPercent, // 위치는 그대로 고정
-          height: Math.max((s.bottomPercent ?? s.topPercent) - s.topPercent, 0.5), // 원래 높이로 쭈욱 늘어남!
-        }));
-        
-        setAnimatingSegments(finalStates);
-      }, 10);
+  const animateOut = () => {
+    if (clearTimerRef.current) clearTimeout(clearTimerRef.current);
+    setAnimatingSegments((prev) => prev.map((s) => ({ ...s, height: 0 })));
+    clearTimerRef.current = setTimeout(() => {
+      setAnimatingSegments([]);
+      clearTimerRef.current = null;
+    }, 420);
+  };
+
+  const cancelClear = () => {
+    if (clearTimerRef.current) {
+      clearTimeout(clearTimerRef.current);
+      clearTimerRef.current = null;
     }
+  };
+
+  // ChatIndex 마커 클릭 → topic 전체 segments 애니메이션
+  useEffect(() => {
+    const newSelectedMarker = markers.find((m) => m.nodeId === selectedNodeId);
+    if (!newSelectedMarker) {
+      if (graphNodeSegments.length === 0) animateOut();
+      return;
+    }
+    cancelClear();
+    const color = newSelectedMarker.color;
+    setAnimatingSegments(newSelectedMarker.segments.map((s, i) => ({
+      key: `topic-${newSelectedMarker.nodeId}-${i}`,
+      color, top: s.topPercent, height: 0,
+    })));
+    setTimeout(() => {
+      setAnimatingSegments(newSelectedMarker.segments.map((s, i) => ({
+        key: `topic-${newSelectedMarker.nodeId}-${i}`,
+        color,
+        top: s.topPercent,
+        height: Math.max((s.bottomPercent ?? s.topPercent) - s.topPercent, 0.5),
+      })));
+    }, 10);
   }, [selectedNodeId, markers]);
+
+  // 그래프 노드 클릭 (기본/linear/tree 모드) → segments 애니메이션
+  useEffect(() => {
+    if (graphNodeSegments.length === 0) {
+      if (!selectedNodeId) animateOut();
+      return;
+    }
+    cancelClear();
+    const key = selectedGraphNodeId || "active";
+    setTimeout(() => {
+      setAnimatingSegments(graphNodeSegments.map((s, i) => ({
+        key: `${key}-${i}`, color: graphNodeColor, top: s.topPercent, height: 0,
+      })));
+      setTimeout(() => {
+        setAnimatingSegments(graphNodeSegments.map((s, i) => ({
+          key: `${key}-${i}`,
+          color: graphNodeColor,
+          top: s.topPercent,
+          height: Math.max((s.bottomPercent ?? s.topPercent) - s.topPercent, 0.5),
+        })));
+      }, 10);
+    }, 0);
+  }, [graphNodeSegments, graphNodeColor]);
 
   // 회색 트랙 세그먼트 계산 로직 (동일)
   const trackSegments = (() => {
@@ -164,10 +194,8 @@ useEffect(() => {
 
   const handleMarkerClick = (marker) => {
     if (selectedNodeId === marker.nodeId) {
-      setSelectedNodeId(null);
       dispatch(setSelectedIndexNode(null));
     } else {
-      setSelectedNodeId(marker.nodeId);
       dispatch(setSelectedIndexNode(marker.nodeId));
       onMarkerClick?.(marker.messageIndex);
     }
@@ -191,7 +219,7 @@ useEffect(() => {
         ))}
 
         {markers.map((marker) => {
-          const isSelected = selectedNodeId === marker.nodeId;
+          const isSelected = selectedNodeId === marker.nodeId || graphTopicNodeId === marker.nodeId;
           return (
             <MarkerRow
               key={marker.nodeId}

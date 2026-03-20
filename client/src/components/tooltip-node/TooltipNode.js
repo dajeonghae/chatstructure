@@ -3,7 +3,7 @@ import { Handle, Position } from "reactflow";
 import styled from "styled-components";
 import { useDispatch, useSelector } from "react-redux";
 import { setHoveredNodes, clearHoveredNodes } from "../../redux/slices/modeSlice";
-import { toggleActiveNode } from "../../redux/slices/nodeSlice"; // ✅ 노드 토글 액션 가져오기
+import { toggleActiveNode, setSelectedGraphNode } from "../../redux/slices/nodeSlice";
 import { COLORS } from "../../styles/colors";
 
 const TooltipContainer = styled.div`
@@ -17,14 +17,19 @@ const NodeContent = styled.div`
   padding: 10px 20px;
   border-radius: 20px;
   background: ${(props) =>
-    props.isActive
+    props.isActive && props.isContextMode
       ? "#606368"
       : props.isHovered
       ? "#A0AEC0"
       : props.isContextMode
-      ? "rgba(217, 217, 217, 0.4)" // Context 모드에서 비활성 노드의 색상
+      ? "rgba(217, 217, 217, 0.4)"
       : "#fff"};
-  color: ${(props) => (props.isActive ? "white" : COLORS.dark_grey_font)};
+  color: ${(props) =>
+    props.isActive && props.isContextMode
+      ? "white"
+      : (props.isActive || props.isSelectedGraph)
+      ? props.darkerColor || COLORS.dark_grey_font
+      : COLORS.dark_grey_font};
   text-align: center;
   border: 1px solid
     ${(props) =>
@@ -97,6 +102,7 @@ const TooltipNode = ({ data, id }) => {
   const hoveredNodeIds = useSelector((state) => state.mode.hoveredNodeIds);
   const activeNodeIds = useSelector((state) => state.node.activeNodeIds);
   const nodesData = useSelector((state) => state.node.nodes);
+  const selectedGraphNodeId = useSelector((state) => state.node.selectedGraphNodeId);
 
   const isHovered = hoveredNodeIds.includes(id);
   const isActive = activeNodeIds.includes(id);
@@ -128,14 +134,16 @@ const TooltipNode = ({ data, id }) => {
       hoveredNodeIds.forEach((hoveredId) => {
         dispatch(toggleActiveNode(hoveredId));
       });
-    } else {
+    } else if (contextMode) {
       dispatch(toggleActiveNode(id));
+    } else {
+      dispatch(setSelectedGraphNode(selectedGraphNodeId === id ? null : id));
     }
   };
 
   return (
     <TooltipContainer onMouseEnter={handleMouseEnter} onMouseLeave={handleMouseLeave} onClick={handleClick}>
-      <NodeContent isHovered={isHovered} isActive={isActive} isContextMode={contextMode} borderColor={data.color}>
+      <NodeContent isHovered={isHovered} isActive={isActive} isContextMode={contextMode} borderColor={data.color} darkerColor={data.darkerColor} isSelectedGraph={selectedGraphNodeId === id}>
         {data.label}
       </NodeContent>
       <Handle
