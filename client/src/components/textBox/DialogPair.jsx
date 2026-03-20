@@ -9,7 +9,7 @@ const PairContainer = styled.div`
     flex-direction: row; /* 가로 배치 */
     width: 100%;
     position: relative;
-    margin-bottom: 20px; /* 대화 쌍 간의 간격 */
+    margin-bottom: 12px; /* 대화 쌍 간의 간격 */
 `;
 
 // 1. 왼쪽: 실제 대화 메시지 영역
@@ -99,7 +99,7 @@ const DialogPair = ({ userMsg, aiMsg, userRef, aiRef }) => {
             <MessagesContainer>
                 {/* User 메시지 */}
                 {userMsg && (
-                    <div ref={userRef} style={{ width: '100%', marginBottom: '8px' }}>
+                    <div ref={userRef} style={{ width: '100%', marginBottom: '4px' }}>
                         <DialogBox
                             text={userMsg.content}
                             isUser={true}

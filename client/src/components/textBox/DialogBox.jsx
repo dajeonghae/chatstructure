@@ -12,7 +12,7 @@ const Container = styled.div`
     display: flex;
     flex-direction: row; 
     justify-content: ${(props) => (props.isUser ? 'flex-end' : 'flex-start')}; 
-    margin: 10px;
+    margin: 6px;
     position: relative;
 `;
 
