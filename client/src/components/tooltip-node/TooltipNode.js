@@ -1,9 +1,9 @@
-import React, { memo } from "react";
+import { memo } from "react";
 import { Handle, Position } from "reactflow";
 import styled from "styled-components";
 import { useDispatch, useSelector } from "react-redux";
 import { setHoveredNodes, clearHoveredNodes } from "../../redux/slices/modeSlice";
-import { toggleActiveNode } from "../../redux/slices/nodeSlice"; // ✅ 노드 토글 액션 가져오기
+import { toggleActiveNode, setSelectedIndexNode } from "../../redux/slices/nodeSlice";
 import { COLORS } from "../../styles/colors";
 
 const TooltipContainer = styled.div`
@@ -11,25 +11,28 @@ const TooltipContainer = styled.div`
   display: inline-block;
 `;
 
-// 676B71
-
 const NodeContent = styled.div`
   padding: 10px 20px;
   border-radius: 20px;
   background: ${(props) =>
-    props.isActive
+    props.isActive && props.isContextMode
       ? "#606368"
       : props.isHovered
       ? "#A0AEC0"
       : props.isContextMode
-      ? "rgba(217, 217, 217, 0.4)" // Context 모드에서 비활성 노드의 색상
+      ? "rgba(217, 217, 217, 0.4)"
       : "#fff"};
-  color: ${(props) => (props.isActive ? "white" : COLORS.dark_grey_font)};
+  color: ${(props) =>
+    props.isActive && props.isContextMode
+      ? "white"
+      : props.isActive
+      ? props.darkerColor || COLORS.dark_grey_font
+      : COLORS.dark_grey_font};
   text-align: center;
   border: 1px solid
     ${(props) =>
       props.isActive
-        ? props.borderColor || "#48BB78" // ✅ 활성화 시엔 color 사용
+        ? props.borderColor || "#48BB78"
         : "#d9d9d9"};
   transition: transform 0.2s ease, box-shadow 0.2s ease, opacity 0.3s;
   opacity: ${(props) => (props.isContextMode && !props.isActive ? 0.3 : 1)};
@@ -48,22 +51,13 @@ const getAllParentNodes = (nodeId, nodesData) => {
   let currentNode = nodesData[nodeId];
   const parentNodes = [];
 
-  console.log("🔍 부모 노드 추적 시작 - 현재 노드 ID:", nodeId);
-
-  while (currentNode && currentNode.parent) {
-    console.log("🔗 현재 노드:", currentNode.id, "| 부모 노드:", currentNode.parent);
-
-    if (!nodesData[currentNode.parent]) {
-      console.error("❗ 부모 노드를 찾을 수 없음:", currentNode.parent);
-      break;
-    }
-
+  while (currentNode && currentNode.parent && currentNode.parent !== "root") {
+    if (!nodesData[currentNode.parent]) break;
     parentNodes.push(currentNode.parent);
     currentNode = nodesData[currentNode.parent];
   }
 
-  console.log("✅ 부모 노드 추적 완료 - 부모 노드 목록:", parentNodes);
-  return parentNodes.reverse(); // 부모에서 자식 순서로 정렬
+  return parentNodes.reverse();
 };
 
 // 자식 노드를 모두 가져오는 함수
@@ -74,20 +68,13 @@ const getAllChildNodes = (nodeId, nodesData) => {
   while (queue.length) {
     const currentId = queue.shift();
     const currentNode = nodesData[currentId];
-
     if (!currentNode) continue;
-
     childNodes.push(currentId);
-
-    // 현재 노드의 자식들을 큐에 추가
-    currentNode.children.forEach((childId) => {
-      queue.push(childId);
-    });
+    currentNode.children.forEach((childId) => queue.push(childId));
   }
 
   return childNodes;
 };
-
 
 const TooltipNode = ({ data, id }) => {
   const dispatch = useDispatch();
@@ -104,49 +91,59 @@ const TooltipNode = ({ data, id }) => {
   const handleMouseEnter = () => {
     if (linearMode) {
       const parentNodes = getAllParentNodes(id, nodesData);
-      const hoverPath = [...parentNodes, id];
-      dispatch(setHoveredNodes(hoverPath));
+      dispatch(setHoveredNodes([...parentNodes, id]));
     } else if (treeMode) {
-      const childNodes = getAllChildNodes(id, nodesData);
-      dispatch(setHoveredNodes(childNodes));
+      dispatch(setHoveredNodes(getAllChildNodes(id, nodesData)));
     }
   };
 
   const handleMouseLeave = () => {
-    if (linearMode || treeMode) {
-      dispatch(clearHoveredNodes());
-    }
+    if (linearMode || treeMode) dispatch(clearHoveredNodes());
   };
 
   const handleClick = (event) => {
     event.stopPropagation();
-    if (linearMode && hoveredNodeIds.length > 0) {
-      hoveredNodeIds.forEach((hoveredId) => {
-        dispatch(toggleActiveNode(hoveredId));
-      });
-    } else if (treeMode && hoveredNodeIds.length > 0) {
-      hoveredNodeIds.forEach((hoveredId) => {
-        dispatch(toggleActiveNode(hoveredId));
-      });
+    if ((linearMode || treeMode) && hoveredNodeIds.length > 0) {
+      if (contextMode) {
+        hoveredNodeIds.forEach((id) => dispatch(toggleActiveNode(id)));
+      } else {
+        const allAlreadyActive = hoveredNodeIds.every((id) => activeNodeIds.includes(id));
+        if (allAlreadyActive) {
+          // 같은 선택 다시 클릭 → 해제
+          hoveredNodeIds.forEach((id) => dispatch(toggleActiveNode(id)));
+        } else {
+          // 새 선택 → 기존 전부 해제 후 새로 활성화
+          dispatch(setSelectedIndexNode(null));
+          activeNodeIds.forEach((id) => dispatch(toggleActiveNode(id)));
+          hoveredNodeIds.forEach((id) => dispatch(toggleActiveNode(id)));
+        }
+      }
+    } else if (contextMode) {
+      dispatch(toggleActiveNode(id));
     } else {
+      // node 모드: 단일 선택
+      dispatch(setSelectedIndexNode(null));
+      if (!isActive) {
+        activeNodeIds.forEach((activeId) => dispatch(toggleActiveNode(activeId)));
+      }
       dispatch(toggleActiveNode(id));
     }
   };
 
   return (
     <TooltipContainer onMouseEnter={handleMouseEnter} onMouseLeave={handleMouseLeave} onClick={handleClick}>
-      <NodeContent isHovered={isHovered} isActive={isActive} isContextMode={contextMode} borderColor={data.color}>
+      <NodeContent isHovered={isHovered} isActive={isActive} isContextMode={contextMode} borderColor={data.color} darkerColor={data.darkerColor}>
         {data.label}
       </NodeContent>
       <Handle
         type="source"
         position={Position.Right}
-        style={{ background: data.color}}
+        style={{ background: data.isIndexHighlighted !== false ? data.color : "#BEBEBE", transition: "background 0.2s ease" }}
       />
       <Handle
         type="target"
         position={Position.Left}
-        style={{ background: data.color}}
+        style={{ background: data.isIndexHighlighted !== false ? data.color : "#BEBEBE", transition: "background 0.2s ease" }}
       />
     </TooltipContainer>
   );

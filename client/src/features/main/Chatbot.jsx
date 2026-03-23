@@ -1,130 +1,60 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useLayoutEffect } from "react";
 import styled from "styled-components";
 import { useDispatch, useSelector } from "react-redux";
 import { sendMessageToApi } from "../../services/chatbotService.js";
-import DialogBox from "../../components/textBox/DialogBox.jsx";
-import { setCurrentScrolledDialog, resetState} from "../../redux/slices/nodeSlice.js";
+import { setCurrentScrolledDialog, clearActiveSelections, toggleActiveNode } from "../../redux/slices/nodeSlice.js";
 import { parseConversationHistory } from "../../utils/parseConversationHistory.js";
 import {
   buildFullSnapshot,
-  downloadSnapshotFile,   // ← 추가
-  loadSnapshotThunk,      // ← 추가
-  saveSnapshotToProject,
-  listProjectSnapshots,
-  loadSnapshotFromProjectThunk
+  downloadSnapshotFile,
+  loadSnapshotThunk,
 } from "../../utils/snapshotManager.js";
 import { store } from "../../redux/store.js";
 import axios from "axios";
+import DialogPair from "../../components/textBox/DialogPair.jsx";
+import ChatIndex from "./ChatIndex.jsx";
+import ChatInput from "../../components/textBox/ChatInput.jsx";
+
+// rawSegments에서 canMerge 조건 만족하는 연속 항목을 하나의 segment로 합침
+const mergeSegments = (rawSegments, canMerge) => {
+  if (!rawSegments.length) return [];
+  const segments = [];
+  let group = { ...rawSegments[0] };
+  for (let i = 1; i < rawSegments.length; i++) {
+    if (canMerge(rawSegments[i - 1], rawSegments[i])) {
+      group.bottomPercent = rawSegments[i].bottomPercent;
+    } else {
+      segments.push(group);
+      group = { ...rawSegments[i] };
+    }
+  }
+  segments.push(group);
+  return segments;
+};
+
+const LayoutWrapper = styled.div`
+  display: flex;
+  flex-direction: row;
+  width: 100%;
+  height: 100%;
+`;
 
 const ChatContainer = styled.div`
   display: flex;
   flex-direction: column;
   align-items: center;
-  width: 100%;
+  flex: 1;
   height: 100%;
+  position: relative;
+  padding: 20px 30px 70px 120px;
+  box-sizing: border-box;
 `;
 
 const MessagesContainer = styled.div`
   flex: 1;
   width: 100%;
-  padding: 20px;
   overflow-y: auto;
   scrollbar-width: none;
-`;
-
-const InputContainer = styled.div`
-  display: flex;
-  width: 85%;
-  min-height: 40px;
-  max-height: 120px;
-  align-items: flex-end;         // 버튼과 텍스트에어리어를 아래쪽 정렬
-  justify-content: space-between; // center → space-between
-  padding: 8px 8px 8px 20px;     // 오른쪽 패딩 줄임 (버튼 공간)
-  border-radius: 100px;
-  border: 1px solid rgba(240, 240, 240);
-  background-color: #ffffff;
-  box-shadow: 0px 8px 24px rgba(149, 157, 165, 0.2);
-  gap: 10px;                     // 텍스트에어리어와 버튼 사이 간격
-`;
-
-const TextArea = styled.textarea`
-  min-height: 24px;
-  max-height: 96px;              // 컨테이너보다 작게
-  flex: 1;
-  border: none;
-  background-color: transparent;
-  font-size: 16px;
-  font-family: "Pretendard";
-  resize: none;
-  overflow-y: auto;
-  line-height: 1.2;
-  padding: 2px 20px;                // 심플하게
-  margin: 0;                     // margin-right 제거
-  
-  &:focus {
-    outline: none;
-  }
-  
-  &::placeholder {
-    color: #999;                 // placeholder 색상
-  }
-`;
-
-const Input = styled.input`
-  height: 20px;
-  flex: 1;
-  border: none;
-  background-color: #ffffff;
-  margin-right: 10px;
-  font-size: 16px;
-  font-family: "Pretendard";
-
-  &:focus {
-    outline: none;
-  }
-`;
-
-const Button = styled.button`
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 40px;
-  height: 40px;
-  border: none;
-  border-radius: 50%;
-  background-color: #373D47;
-  cursor: pointer;
-`;
-
-const ArrowContainer = styled.div`
-  position: fixed;
-  bottom: 100px;
-  right: 20px;
-  margin: 0px 100px 50px 0px;
-  display: flex;
-  flex-direction: column;
-  gap: 7px;
-`;
-
-const ArrowButton = styled.button`
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 50px;
-  height: 50px;
-  background-color: #ffffff;
-  color: white;
-  border: 1px solid rgba(217, 217, 217, 0.8);
-  border-radius: 50%;
-  cursor: pointer;
-  opacity: ${(props) => (props.disabled ? 0.2 : 1)};
-  pointer-events: ${(props) => (props.disabled ? "none" : "auto")};
-  box-shadow: 0 4px 4px rgba(0, 0, 0, 0.1);
-  transition: all 0.2s ease;
-
-  &:hover {
-    background-color: #f5f5f5;
-  }
 `;
 
 const TopButtonContainer = styled.div`
@@ -134,6 +64,40 @@ const TopButtonContainer = styled.div`
   display: flex;
   flex-direction: column;
   gap: 10px;
+  z-index: 100;
+`;
+
+const NavPill = styled.div`
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 4px;
+  border: 1.5px solid #E8EAED;
+  border-radius: 999px;
+  background: #fff;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.03);
+  position: absolute;
+  right: -25px;
+  bottom: 64px;
+  z-index: 200;
+`;
+
+const NavButton = styled.button`
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  background: transparent;
+  border: none;
+  border-radius: 50%;
+  cursor: ${(p) => (p.disabled ? "default" : "pointer")};
+  filter: ${(p) => (p.disabled ? "saturate(0)" : "none")};
+  opacity: ${(p) => (p.disabled ? 0.35 : 1)};
+  pointer-events: ${(p) => (p.disabled ? "none" : "auto")};
+  transition: background 0.15s ease, filter 0.2s ease, opacity 0.2s ease;
+  &:hover { background: ${(p) => (p.disabled ? "transparent" : "#F3F4F6")}; }
 `;
 
 const SaveButton = styled.button`
@@ -145,52 +109,296 @@ const SaveButton = styled.button`
   cursor: pointer;
 `;
 
-const RestoreButton = styled(SaveButton)`
-  background-color: #ed8936;
-`;
-
 const ExportButton = styled(SaveButton)`
   background-color: #2d3748;
 `;
+
 const ImportButton = styled(SaveButton)`
   background-color: #ffffff;
   color: #2d3748;
-  border: 1px solid  #2d3748;
+  border: 1px solid #2d3748;
 `;
 
-
 function Chatbot() {
-  const [messages, setMessages] = useState([]); // 대화 목록을 배열로 보관
-  const [input, setInput] = useState(""); // 입력창 내용을 보관
-  const [currentIndex, setCurrentIndex] = useState(0);  // 현재 활성 대화 인덱스
+  const [messages, setMessages] = useState([]);
+  const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [scrollPercent, setScrollPercent] = useState(100);
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [topicMarkers, setTopicMarkers] = useState([]);
+  const [graphNodeSegments, setGraphNodeSegments] = useState([]);
+  const [graphNodeColor, setGraphNodeColor] = useState("#A5A7AA");
+  const [graphTopicNodeId, setGraphTopicNodeId] = useState(null);
+  const [allTopicsHighlighted, setAllTopicsHighlighted] = useState(false);
 
-  const messagesEndRef = useRef(null); // 맨 아래로 스크롤
-  const messageRefs = useRef([]);  // 각 메시지 <div> DOM을 배열로 저장. 특정 메시지로 스크롤할 수 있도록 함
-  const fileInputRef = useRef(null)
+  const scrollContainerRef = useRef(null);
+  const contentScaleRef = useRef({ min: 0, max: 100 });
+  const messagesEndRef = useRef(null);
+  const messageRefs = useRef([]);
+  const fileInputRef = useRef(null);
   const prevActiveDialogNumbersRef = useRef([]);
+  const textareaRef = useRef(null);
 
   const dispatch = useDispatch();
 
-  const dialogNumber = useSelector((state) => state.node.dialogCount);
-  const activeDialogNumbers = useSelector((state) => state.node.activeDialogNumbers);  // 활성화된 대화 번호들
+  const activeDialogNumbers = useSelector((state) => state.node.activeDialogNumbers);
   const currentScrolledDialog = useSelector((state) => state.node.currentScrolledDialog);
+  const activeNodeIds = useSelector((state) => state.node.activeNodeIds);
+  const nodes = useSelector((state) => state.node.nodes);
+  const nodeColors = useSelector((state) => state.node.nodeColors);
   const contextMode = useSelector((state) => state.mode.contextMode);
+  const selectedIndexNodeId = useSelector((state) => state.node.selectedIndexNodeId);
 
-  // 🔥 대화 스크롤 이동 함수
+  const currentNodeId = activeNodeIds[activeNodeIds.length - 1] || "root";
+
+  const handleScroll = (e) => {
+    const { scrollTop, scrollHeight } = e.target;
+
+    const percent = (scrollTop / scrollHeight) * 100;
+    setScrollPercent(percent);
+  };
+
   const scrollToMessage = (index) => {
-    if (messageRefs.current[index]) {
-      messageRefs.current[index].scrollIntoView({ behavior: "smooth", block: "center" });
+    const el = messageRefs.current[index];
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "start" });
     }
   };
 
-  // 🔥 대화 추가 시 맨 아래로 스크롤
   const scrollToBottom = () => {
     if (messagesEndRef.current) {
       messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
     }
   };
 
+  const getAllDescendantDialogs = (startNodeId) => {
+    const result = new Set();
+    const queue = [startNodeId];
+    while (queue.length) {
+      const nodeId = queue.shift();
+      const n = nodes[nodeId];
+      if (!n) continue;
+      Object.keys(n.dialog || {}).map(Number).forEach((d) => result.add(d));
+      (n.children || []).forEach((childId) => queue.push(childId));
+    }
+    return [...result];
+  };
+
+  const calculateTopicMarkers = () => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+
+    const topicNodes = Object.values(nodes).filter(
+      (node) => node.parent === "root" && node.id !== "root"
+    );
+
+    const totalScrollableHeight = Math.max(1, container.scrollHeight);
+
+    const containerRect = container.getBoundingClientRect();
+
+    // 토픽별 dialog 소유 맵 (다른 토픽이 중간에 있는지 확인용)
+    const dialogTopicMap = {};
+    topicNodes.forEach((tn) => {
+      getAllDescendantDialogs(tn.id).forEach((d) => {
+        if (!dialogTopicMap[d]) dialogTopicMap[d] = [];
+        dialogTopicMap[d].push(tn.id);
+      });
+    });
+
+    const markers = topicNodes
+      .map((node) => {
+        const dialogNumbers = getAllDescendantDialogs(node.id);
+        if (dialogNumbers.length === 0) return null;
+
+        const sorted = [...dialogNumbers].sort((a, b) => a - b);
+        const firstDialogNumber = sorted[0];
+        const userMessageIndex = (firstDialogNumber - 1) * 2;
+        const targetEl = messageRefs.current[userMessageIndex];
+
+        if (!targetEl) return null;
+
+        const targetRect = targetEl.getBoundingClientRect();
+        const topPx = targetRect.top - containerRect.top + container.scrollTop;
+        const topPercent = Math.max(
+          0,
+          Math.min(100, (topPx / totalScrollableHeight) * 100)
+        );
+
+        // 각 dialog의 위치 계산
+        const rawSegments = sorted
+          .map((num) => {
+            const msgIndex = (num - 1) * 2;
+            const userEl = messageRefs.current[msgIndex];
+            if (!userEl) return null;
+            const aiEl = messageRefs.current[msgIndex + 1];
+
+            const userRect = userEl.getBoundingClientRect();
+            const topPxSeg = userRect.top - containerRect.top + container.scrollTop;
+
+            const bottomEl = aiEl || userEl;
+            const bottomRect = bottomEl.getBoundingClientRect();
+            const bottomPxSeg = bottomRect.bottom - containerRect.top + container.scrollTop;
+
+            return {
+              dialogNum: num,
+              topPercent: Math.max(0, Math.min(100, (topPxSeg / totalScrollableHeight) * 100)),
+              bottomPercent: Math.max(0, Math.min(100, (bottomPxSeg / totalScrollableHeight) * 100)),
+              messageIndex: msgIndex,
+            };
+          })
+          .filter(Boolean);
+
+        // 사이에 다른 토픽 없으면 병합
+        const segments = mergeSegments(rawSegments, (prev, curr) => {
+          for (let d = prev.dialogNum + 1; d < curr.dialogNum; d++) {
+            if ((dialogTopicMap[d] || []).some((t) => t !== node.id)) return false;
+          }
+          return true;
+        });
+
+        return {
+          nodeId: node.id,
+          keyword: node.keyword,
+          color: nodeColors[node.id] || "#A5A7AA",
+          topPercent,
+          messageIndex: userMessageIndex,
+          segments,
+        };
+      })
+      .filter(Boolean);
+
+    // 실제 비율 간격은 유지하면서 전체를 0%~100%로 늘려 트랙에 꽉 채움
+    const allPercents = markers.flatMap((m) => [
+      m.topPercent,
+      ...m.segments.flatMap((s) => [s.topPercent, s.bottomPercent ?? s.topPercent]),
+    ]);
+    const minP = markers.length > 0 ? Math.min(...allPercents) : 0;
+    const maxP = markers.length > 0 ? Math.max(...allPercents) : 100;
+    const range = maxP - minP || 1;
+    contentScaleRef.current = { min: minP, max: maxP, range };
+    const scale = (v) => ((v - minP) / range) * 100;
+
+    setTopicMarkers(markers.map((m) => ({
+      ...m,
+      topPercent: scale(m.topPercent),
+      segments: m.segments.map((s) => ({
+        ...s,
+        topPercent: scale(s.topPercent),
+        bottomPercent: s.bottomPercent != null ? scale(s.bottomPercent) : undefined,
+      })),
+    })));
+  };
+
+  const handleMarkerClick = (nodeId, messageIndex) => {
+    const queue = [nodeId];
+    while (queue.length) {
+      const id = queue.shift();
+      const n = nodes[id];
+      if (!n) continue;
+      dispatch(toggleActiveNode(id));
+      (n.children || []).forEach((c) => queue.push(c));
+    }
+    scrollToMessage(messageIndex);
+  };
+
+  const computeSegmentsForDialogs = (dialogNumbers, container) => {
+    const totalScrollableHeight = Math.max(1, container.scrollHeight);
+    const containerRect = container.getBoundingClientRect();
+    const { min, range } = contentScaleRef.current;
+    const scale = (v) => ((v - min) / (range || 1)) * 100;
+    return dialogNumbers
+      .map((num) => {
+        const msgIndex = (num - 1) * 2;
+        const userEl = messageRefs.current[msgIndex];
+        if (!userEl) return null;
+        const aiEl = messageRefs.current[msgIndex + 1];
+        const userRect = userEl.getBoundingClientRect();
+        const topPxSeg = userRect.top - containerRect.top + container.scrollTop;
+        const bottomEl = aiEl || userEl;
+        const bottomRect = bottomEl.getBoundingClientRect();
+        const bottomPxSeg = bottomRect.bottom - containerRect.top + container.scrollTop;
+        const rawTop = (topPxSeg / totalScrollableHeight) * 100;
+        const rawBottom = (bottomPxSeg / totalScrollableHeight) * 100;
+        return {
+          dialogNum: num,
+          topPercent: Math.max(0, Math.min(100, scale(rawTop))),
+          bottomPercent: Math.max(0, Math.min(100, scale(rawBottom))),
+          messageIndex: msgIndex,
+        };
+      })
+      .filter(Boolean);
+  };
+
+  // contextMode OFF 시 활성화된 선택 초기화
+  const prevContextModeRef = useRef(false);
+  const justClearedRef = useRef(false);
+  useEffect(() => {
+    if (prevContextModeRef.current && !contextMode) {
+      justClearedRef.current = true;
+      setGraphNodeSegments([]);
+      setGraphTopicNodeId(null);
+      setAllTopicsHighlighted(false);
+      dispatch(clearActiveSelections());
+    }
+    prevContextModeRef.current = contextMode;
+  }, [contextMode, dispatch]);
+
+  // 활성화된 노드 → ChatIndex highlight + 스크롤 (모든 모드 통합)
+  useEffect(() => {
+    // contextMode 해제 직후엔 stale activeNodeIds로 재계산하지 않음
+    if (justClearedRef.current) {
+      justClearedRef.current = false;
+      return;
+    }
+    if (contextMode) return;
+    if (selectedIndexNodeId) {
+      setGraphNodeSegments([]);
+      setGraphTopicNodeId(null);
+      setAllTopicsHighlighted(false);
+      return;
+    }
+    if (activeNodeIds.length === 0) {
+      setGraphNodeSegments([]);
+      setGraphTopicNodeId(null);
+      setAllTopicsHighlighted(false);
+      return;
+    }
+
+    // root 클릭 → 모든 topic highlight (ChatIndex가 markers 직접 사용)
+    if (activeNodeIds.includes("root")) {
+      setGraphNodeSegments([]);
+      setGraphTopicNodeId(null);
+      setAllTopicsHighlighted(true);
+      return;
+    }
+
+    setAllTopicsHighlighted(false);
+    const container = scrollContainerRef.current;
+    if (!container) return;
+
+    const allDialogNumbers = [];
+    activeNodeIds.forEach((nodeId) => {
+      const node = nodes[nodeId];
+      if (!node) return;
+      Object.keys(node.dialog || {}).map(Number).forEach((d) => allDialogNumbers.push(d));
+    });
+    allDialogNumbers.sort((a, b) => a - b);
+
+    const ownedSet = new Set(allDialogNumbers);
+    const raw = computeSegmentsForDialogs(allDialogNumbers, container);
+    const segs = mergeSegments(raw, (prev, curr) => {
+      for (let d = prev.dialogNum + 1; d < curr.dialogNum; d++) {
+        if (!ownedSet.has(d)) return false;
+      }
+      return true;
+    });
+    setGraphNodeSegments(segs);
+
+    let cur = nodes[activeNodeIds[0]];
+    while (cur && cur.parent && cur.parent !== "root") cur = nodes[cur.parent];
+    setGraphNodeColor((cur?.id && nodeColors[cur.id]) || "#A5A7AA");
+    setGraphTopicNodeId(cur?.id || null);
+  }, [activeNodeIds, nodes, messages, contextMode, selectedIndexNodeId]);
 
   useEffect(() => {
     const prevDialogs = prevActiveDialogNumbersRef.current;
@@ -199,21 +407,22 @@ function Chatbot() {
     const prevSorted = [...prevDialogs].sort((a, b) => a - b);
     const currSorted = [...currDialogs].sort((a, b) => a - b);
 
-    const newlyAdded = currSorted.filter(num => !prevSorted.includes(num));
-    const newlyRemoved = prevSorted.filter(num => !currSorted.includes(num));
+    const newlyAdded = currSorted.filter((num) => !prevSorted.includes(num));
+    const newlyRemoved = prevSorted.filter((num) => !currSorted.includes(num));
 
-    if (newlyAdded.length > 0) {
-      const latest = newlyAdded[newlyAdded.length - 1];
-      const latestIndex = latest - 1;
-
-      setCurrentIndex(currSorted.indexOf(latest));
-      dispatch(setCurrentScrolledDialog(latest));
-
-      setTimeout(() => {
-        scrollToMessage(latestIndex);
-      }, 0);
+    if (newlyAdded.length > 0 && currSorted.length > 0) {
+      if (contextMode) {
+        // 새 메시지 추가(context mode) → 최신 대화로 스크롤
+        const latest = currSorted[currSorted.length - 1];
+        dispatch(setCurrentScrolledDialog(latest));
+        setTimeout(() => scrollToMessage(latest - 1), 0);
+      } else {
+        // 인덱스/노드 등으로 history 활성화 → 가장 이른 대화로 스크롤
+        const earliest = currSorted[0];
+        dispatch(setCurrentScrolledDialog(earliest));
+        setTimeout(() => scrollToMessage(earliest - 1), 0);
+      }
     } else if (newlyRemoved.length > 0 && currSorted.length > 0) {
-      // 제거된 번호와 가장 가까운 남은 번호 찾기
       const closest = currSorted.reduce((prev, curr) => {
         return Math.abs(curr - currentScrolledDialog) < Math.abs(prev - currentScrolledDialog)
           ? curr
@@ -221,24 +430,35 @@ function Chatbot() {
       }, currSorted[0]);
 
       dispatch(setCurrentScrolledDialog(closest));
-      setCurrentIndex(currSorted.indexOf(closest));
-
-      console.log("🔄 [상태만 갱신] closest:", closest);
     }
 
     prevActiveDialogNumbersRef.current = currDialogs;
-  }, [activeDialogNumbers]);
+  }, [activeDialogNumbers, currentScrolledDialog, dispatch, contextMode]);
 
-
-  // 🔥 새로운 대화가 추가될 때 아래로 스크롤
   useEffect(() => {
     scrollToBottom();
+    setTimeout(() => {
+      calculateTopicMarkers();
+      setScrollPercent(100);
+    }, 100);
   }, [messages]);
 
-  // 🔥 화살표 클릭 시 대화 이동
+  useLayoutEffect(() => {
+    calculateTopicMarkers();
+  }, [messages, nodes, nodeColors]);
+
+  useEffect(() => {
+    const handleResize = () => {
+      calculateTopicMarkers();
+    };
+
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, [messages, nodes, nodeColors]);
+
   const moveToMessage = (direction) => {
     const sortedDialogs = [...activeDialogNumbers].sort((a, b) => a - b);
-    const currentScrolled = store.getState().node.currentScrolledDialog; // 최신 기준 상태
+    const currentScrolled = store.getState().node.currentScrolledDialog;
     const currentDialogIndex = sortedDialogs.indexOf(currentScrolled);
     const nextIndex = currentDialogIndex + direction;
 
@@ -248,72 +468,38 @@ function Chatbot() {
       scrollToMessage(nextMessageNumber - 1);
     }
   };
-  
-  const activeNodeIds = useSelector((state) => state.node.activeNodeIds);
-  const currentNodeId = activeNodeIds[activeNodeIds.length - 1] || "root";
 
-  // const handleSaveState = () => {
-  //   const currentState = {
-  //     nodes: store.getState().node.nodes,
-  //     activeNodeIds: store.getState().node.activeNodeIds,
-  //     activeDialogNumbers: store.getState().node.activeDialogNumbers,
-  //     dialogCount: store.getState().node.dialogCount,
-  //     currentScrolledDialog: store.getState().node.currentScrolledDialog, 
-  //     nodeColors: store.getState().node.nodeColors, 
-  //     messages,
-  //   };
-  
-  //   localStorage.setItem("testBackup", JSON.stringify(currentState));
-  //   alert("✅ 상태 저장 완료!");
-  // };
-  
-  // const handleRestoreState = () => {
-  //   const saved = JSON.parse(localStorage.getItem("testBackup"));
-  //   if (!saved) return alert("❌ 저장된 상태가 없습니다.");
-  
-  //   dispatch(resetState(saved));
-  //   setMessages(saved.messages);
-  //   setCurrentIndex(saved.activeDialogNumbers.length - 1);
-  //   dispatch(setCurrentScrolledDialog(saved.activeDialogNumbers[saved.activeDialogNumbers.length - 1]));
-  //   alert("♻️ 상태 복원 완료!");
-  // };
-
-// [+] 스냅샷 JSON 파일로 내보내기
   const handleExportSnapshot = () => {
-    const reduxState = store.getState(); // [+]
+    const reduxState = store.getState();
     const snapshot = buildFullSnapshot(reduxState, messages);
     downloadSnapshotFile(snapshot);
   };
 
-  // [+] 파일 선택창 오픈
-  const handleImportClick = () => {
-    fileInputRef.current?.click(); // [+]
-  };
-
-  // [+] 스냅샷 JSON 불러오기
   const handleImportSnapshot = async (e) => {
-    const file = e.target.files?.[0]; // [+]
-    e.target.value = ""; // [+]
-    if (!file) return; // [+]
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+
     try {
-    const { messages: restored } = await dispatch(loadSnapshotThunk(file));
-    setMessages(restored || []);
-    // 복원 직후 맨 아래로 스크롤
-    setTimeout(() => {
-      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-    }, 0);
-      alert("📦 스냅샷 복원 완료!(JSON)"); // [+]
-    } catch (err2) {
-      console.error(err2); // [+]
-      alert("❌ 스냅샷 불러오기 실패 (콘솔 확인)"); // [+]
+      const { messages: restored } = await dispatch(loadSnapshotThunk(file));
+      setMessages(restored || []);
+
+      setTimeout(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+        calculateTopicMarkers();
+      }, 0);
+
+      alert("📦 스냅샷 복원 완료!(JSON)");
+    } catch (err) {
+      console.error(err);
+      alert("❌ 스냅샷 불러오기 실패 (콘솔 확인)");
     }
   };
 
-
   const handleSend = async () => {
-    if (input.trim() === "" || isLoading) return; // 로딩 중이면 실행하지 않음
+    if (input.trim() === "" || isLoading) return;
 
-    setIsLoading(true); // 로딩 시작
+    setIsLoading(true);
 
     const userMessage = {
       role: "user",
@@ -324,7 +510,13 @@ function Chatbot() {
 
     let updatedMessages = [...messages, userMessage];
     setMessages(updatedMessages);
+
     setInput("");
+    setIsExpanded(false);
+
+    if (textareaRef.current) {
+      textareaRef.current.style.height = "40px";
+    }
 
     try {
       const gptMessageContent = await dispatch(sendMessageToApi(input, updatedMessages));
@@ -334,190 +526,200 @@ function Chatbot() {
         nodeId: currentNodeId,
         number: updatedMessages.length + 1,
       };
+
       updatedMessages = [...updatedMessages, gptMessage];
       setMessages(updatedMessages);
     } catch (error) {
       console.error("Error sending message:", error);
     } finally {
-      setIsLoading(false); // 로딩 종료
+      setIsLoading(false);
     }
   };
 
-const handleKeyDown = (e) => {
-  if (e.key === "Enter") {
-    if (e.shiftKey) {
-      // 👉 Shift+Enter: 줄바꿈 허용 (기본 동작 그대로)
-      return;
-    } else {
-      // 👉 그냥 Enter: 전송
-      e.preventDefault(); // 줄바꿈 막기
+  const handleKeyDown = (e) => {
+    if (e.key === "Enter") {
+      if (e.shiftKey) return;
+      e.preventDefault();
       handleSend();
     }
-  }
-};
+  };
 
-useEffect(() => {
-  const onReplay = async (e) => {
-    const raw = e?.detail?.text ?? "";
-    if (!raw.trim()) return;
+  useEffect(() => {
+    const onReplay = async (e) => {
+      const raw = e?.detail?.text ?? "";
+      if (!raw.trim()) return;
 
-    const parsed = parseConversationHistory(raw); // [{role, content}, ...]
+      const parsed = parseConversationHistory(raw);
 
-    // user/assistant 페어로 묶기
-    const pairs = [];
-    for (let i = 0; i < parsed.length; i += 2) {
-      const user = parsed[i]?.content ?? "";
-      const assistant = parsed[i + 1]?.content ?? "";
-      if (user) pairs.push({ user, assistant });
-    }
+      const pairs = [];
+      for (let i = 0; i < parsed.length; i += 2) {
+        const user = parsed[i]?.content ?? "";
+        const assistant = parsed[i + 1]?.content ?? "";
+        if (user) pairs.push({ user, assistant });
+      }
 
-    let running = [...messages];
+      let running = [...messages];
 
-    // 시작 신호(선택: 모달에서도 보냄)
-    window.dispatchEvent(new CustomEvent("vis:start"));
-    try {
-      // 턴 순서대로 실행
-      for (const { user, assistant } of pairs) {
-        // 1) 사용자 메시지를 먼저 화면에 붙임
-        const userMessage = {
-          role: "user",
-          content: user,
-          nodeId: currentNodeId,
-          number: running.length + 1,
-        };
-        running = [...running, userMessage];
-        setMessages(running);
-
-        try {
-          // 2) 기존 파이프라인 호출(그래프 갱신 포함)
-          // assistantOverride로 모델 콜 없이 주어진 assistant 텍스트 사용
-          const gptMessageContent = await dispatch(
-            sendMessageToApi(user, running, { assistantOverride: assistant }) // [+]
-          );
-
-          // 3) 어시스턴트 메시지를 화면에 붙임
-          const gptMessage = {
-            role: "assistant",
-            content: gptMessageContent,
+      window.dispatchEvent(new CustomEvent("vis:start"));
+      try {
+        for (const { user, assistant } of pairs) {
+          const userMessage = {
+            role: "user",
+            content: user,
             nodeId: currentNodeId,
             number: running.length + 1,
           };
-          running = [...running, gptMessage];
+
+          running = [...running, userMessage];
           setMessages(running);
-        } catch (err) {
-          console.error("Replay turn failed:", err);
-          // 실패해도 다음 턴 계속 진행(필요시 여기서 중단하도록 변경 가능)
+
+          try {
+            const gptMessageContent = await dispatch(
+              sendMessageToApi(user, running, { assistantOverride: assistant })
+            );
+
+            const gptMessage = {
+              role: "assistant",
+              content: gptMessageContent,
+              nodeId: currentNodeId,
+              number: running.length + 1,
+            };
+
+            running = [...running, gptMessage];
+            setMessages(running);
+          } catch (err) {
+            console.error("Replay turn failed:", err);
+          }
         }
+      } finally {
+        window.dispatchEvent(new CustomEvent("vis:done"));
       }
-    } finally {
-      // 완료 신호(항상 보냄) → 모달이 vis:done을 받으면 닫힘
-      window.dispatchEvent(new CustomEvent("vis:done"));
+    };
+
+    window.addEventListener("chat:replay", onReplay);
+    return () => window.removeEventListener("chat:replay", onReplay);
+  }, [dispatch, currentNodeId, messages]);
+
+  const handleLoadFromServer = async () => {
+    try {
+      const r = await axios.get("http://localhost:8080/api/chatgraph/get");
+      const snap = r.data?.snapshot;
+      if (!snap) throw new Error("no snapshot returned");
+
+      const { messages: restored } = await dispatch(loadSnapshotThunk(snap));
+      setMessages(restored || []);
+
+      setTimeout(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+        calculateTopicMarkers();
+      }, 0);
+
+      alert("♻️ 서버에서 스냅샷 불러오기 완료 (chatgraph.json)");
+    } catch (e) {
+      console.error(e);
+      alert("❌ 서버 불러오기 실패 (콘솔 확인)");
     }
   };
 
-  window.addEventListener("chat:replay", onReplay);
-  return () => window.removeEventListener("chat:replay", onReplay);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-}, [dispatch, currentNodeId, messages.length]);
+  const handleInput = (e) => {
+    setInput(e.target.value);
 
-const handleLoadFromServer = async () => {
-  try {
-    const r = await axios.get("http://localhost:8080/api/chatgraph/get");
-    const snap = r.data?.snapshot;
-    if (!snap) throw new Error("no snapshot returned");
+    e.target.style.height = "40px";
+    const currentScrollHeight = e.target.scrollHeight;
 
-    // snapshotManager.loadSnapshotThunk는 File/객체 모두 지원 → 그대로 사용
-    const { messages: restored } = await dispatch(loadSnapshotThunk(snap));
-    setMessages(restored || []);
-
-    // 복원 직후 스크롤
-    setTimeout(() => {
-      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-    }, 0);
-
-    alert("♻️ 서버에서 스냅샷 불러오기 완료 (chatgraph.json)");
-  } catch (e) {
-    console.error(e);
-    alert("❌ 서버 불러오기 실패 (콘솔 확인)");
-  }
-};
-
-const handleInput = (e) => {
-  setInput(e.target.value);
-  
-  // 자동 높이 조절
-  e.target.style.height = 'auto';
-  e.target.style.height = e.target.scrollHeight + 'px';
-};
+    if (currentScrollHeight > 45) {
+      setIsExpanded(true);
+      e.target.style.height = `${currentScrollHeight}px`;
+    } else {
+      setIsExpanded(false);
+      e.target.style.height = "40px";
+    }
+  };
 
   return (
-    <ChatContainer>
-      <MessagesContainer>
-        {messages.map((msg, index) => (
-          <div
-            key={index}
-            ref={(el) => (messageRefs.current[index] = el)}  // 🔥 각 메시지에 ref 할당
-          >
-            <DialogBox
-              text={msg.content}
-              isUser={msg.role === "user"}
-              nodeId={msg.nodeId}
-              number={msg.number}
-            />
-          </div>
-        ))}
-        <div ref={messagesEndRef} />
-      </MessagesContainer>
-      {activeDialogNumbers.length > 0 && (
-        <ArrowContainer>
+    <LayoutWrapper>
+      <ChatContainer>
+        <MessagesContainer ref={scrollContainerRef} onScroll={handleScroll}>
           {(() => {
-            const sortedDialogs = [...activeDialogNumbers].sort((a, b) => a - b);
-            const currentIndex = sortedDialogs.indexOf(currentScrolledDialog);
+            const pairedMessages = [];
 
-            return (
-              <>
-                <ArrowButton onClick={() => moveToMessage(-1)} disabled={currentIndex <= 0}>
-                  <span className="material-symbols-outlined md-black-font md-30" style={{ userSelect: "none" }}>keyboard_arrow_up</span>
-                </ArrowButton>
-                <ArrowButton onClick={() => moveToMessage(1)} disabled={currentIndex >= sortedDialogs.length - 1}>
-                  <span className="material-symbols-outlined md-black-font md-30" style={{ userSelect: "none" }}>keyboard_arrow_down</span>
-                </ArrowButton>
-              </>
-            );
+            for (let i = 0; i < messages.length; i += 2) {
+              pairedMessages.push({
+                userMsg: messages[i],
+                aiMsg: messages[i + 1],
+                userIndex: i,
+                aiIndex: i + 1,
+              });
+            }
+
+            return pairedMessages.map((pair, index) => (
+              <DialogPair
+                key={index}
+                userMsg={pair.userMsg}
+                aiMsg={pair.aiMsg}
+                userRef={(el) => {
+                  messageRefs.current[pair.userIndex] = el;
+                }}
+                aiRef={(el) => {
+                  if (pair.aiMsg) {
+                    messageRefs.current[pair.aiIndex] = el;
+                  }
+                }}
+              />
+            ));
           })()}
-        </ArrowContainer>
-      )}
-      <TopButtonContainer>
-        <ExportButton onClick={handleExportSnapshot}>Export</ExportButton> 
-        <ImportButton onClick={handleLoadFromServer}>Import</ImportButton>
-        <input
-          type="file"
-          ref={fileInputRef}
-          accept="application/json"
-          style={{ display: "none" }}
-          onChange={handleImportSnapshot}
-        />
-      </TopButtonContainer>
-      <InputContainer style={{ opacity: isLoading ? 0.5 : 1, pointerEvents: isLoading ? 'none' : 'auto' }}>
-        <TextArea
-          value={input}
+          <div ref={messagesEndRef} />
+        </MessagesContainer>
+
+        <TopButtonContainer>
+          <ExportButton onClick={handleExportSnapshot}>Export</ExportButton>
+          <ImportButton onClick={handleLoadFromServer}>Import</ImportButton>
+          <input
+            type="file"
+            ref={fileInputRef}
+            accept="application/json"
+            style={{ display: "none" }}
+            onChange={handleImportSnapshot}
+          />
+        </TopButtonContainer>
+
+        {(() => {
+          const sorted = [...activeDialogNumbers].sort((a, b) => a - b);
+          const currentIndex = sorted.indexOf(currentScrolledDialog);
+          const inactive = sorted.length === 0;
+          return (
+            <NavPill>
+              <NavButton onClick={() => moveToMessage(-1)} disabled={inactive || currentIndex <= 0}>
+                <span className="material-symbols-outlined md-black-font md-18" style={{ userSelect: "none" }}>keyboard_arrow_up</span>
+              </NavButton>
+              <NavButton onClick={() => moveToMessage(1)} disabled={inactive || currentIndex >= sorted.length - 1}>
+                <span className="material-symbols-outlined md-black-font md-18" style={{ userSelect: "none" }}>keyboard_arrow_down</span>
+              </NavButton>
+            </NavPill>
+          );
+        })()}
+        <ChatInput
+          input={input}
+          isLoading={isLoading}
+          isExpanded={isExpanded}
+          textareaRef={textareaRef}
           onChange={handleInput}
           onKeyDown={handleKeyDown}
-          placeholder="메세지 입력하기"
-          disabled={isLoading}
+          onSend={handleSend}
         />
-        <Button onClick={handleSend} disabled={isLoading}>
-          <span 
-            className="material-symbols-outlined md-white md-24" 
-            style={{ userSelect: "none" }}
-          >
-            arrow_upward
-          </span>
-        </Button>
-      </InputContainer>
-    </ChatContainer>
+      </ChatContainer>
+
+      <ChatIndex
+        scrollPercent={scrollPercent}
+        markers={topicMarkers}
+        graphNodeSegments={graphNodeSegments}
+        graphNodeColor={graphNodeColor}
+        graphTopicNodeId={graphTopicNodeId}
+        allTopicsHighlighted={allTopicsHighlighted}
+        onMarkerClick={handleMarkerClick}
+      />
+    </LayoutWrapper>
   );
 }
-
 
 export default Chatbot;

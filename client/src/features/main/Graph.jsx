@@ -11,8 +11,24 @@ import ToggleButton from "../../components/button/ToggleButton";
 import { toggleContextMode } from "../../redux/slices/modeSlice";
 import { setNodeColors } from "../../redux/slices/nodeSlice";
 
+
 const edgeTypes = { custom: CustomEdge, bezier: BezierEdge };
-const nodeTypes = { tooltipNode: CustomTooltipNode };
+
+const TopicBgNode = ({ data }) => (
+  <div
+    style={{
+      width: "100%",
+      height: "100%",
+      borderRadius: "20px",
+      backgroundColor: data.color,
+      opacity: 0.12,
+      transition: "opacity 0.5s ease, background-color 0.5s ease",
+      pointerEvents: "none",
+    }}
+  />
+);
+
+const nodeTypes = { tooltipNode: CustomTooltipNode, topicBg: TopicBgNode };
 
 const TOKEN_LIMIT = 15900;
 
@@ -30,7 +46,6 @@ const Page = styled.div`
   flex-direction: column;
   width: 100%;
   height: 100%;
-  gap: 12px;
 `;
 
 const GraphPanel = styled.div`
@@ -38,8 +53,6 @@ const GraphPanel = styled.div`
   flex: 1 1 auto;
   min-height: 0;
   background: #FCFCFC;
-  border: 1px solid #eee;
-  border-radius: 12px;
   overflow: hidden;
   box-shadow: 0 2px 6px rgba(0,0,0,0.12);
 `;
@@ -47,7 +60,7 @@ const GraphPanel = styled.div`
 const HelperContainer = styled.div`
   display: flex;
   flex-direction: row;
-  gap: 20px;
+  gap: 10px;
   align-items: stretch;
   width: 100%;
 `;
@@ -127,7 +140,7 @@ const Chip = styled.span`
 
 const SlideSection = styled.div`
   height: ${(p) => p.$h}px;
-  padding: ${(p) => (p.$open ? "8px 0" : "0")};
+  padding: ${(p) => (p.$open ? "8px 10px" : "0")};
   box-sizing: content-box;
   transition:
     height 280ms ease,
@@ -137,17 +150,6 @@ const SlideSection = styled.div`
   opacity: ${(p) => (p.$open ? 1 : 0)};
   transform: translateY(${(p) => (p.$open ? "0px" : "8px")});
 `;
-
-function getReadableTextColor(hex = "#000000") {
-try {
-  const x = hex.replace("#", "");
-  const r = parseInt(x.substring(0, 2), 16);
-  const g = parseInt(x.substring(2, 4), 16);
-  const b = parseInt(x.substring(4, 6), 16);
-  const yiq = (r*299 + g*587 + b*114) / 1000;
-  return yiq >= 140 ? "#111" : "#fff";
-} catch { return "#111"; }
-}
 
 function mixHex(a, b, t) {
   const pa = parseInt(a.slice(1), 16);
@@ -222,6 +224,7 @@ function Graph() {
   const nodesData = useSelector((state) => state.node.nodes) || {};
   const contextMode = useSelector((state) => state.mode.contextMode);
   const nodeColors = useSelector((state) => state.node.nodeColors) || {};
+  const selectedIndexNodeId = useSelector((state) => state.node.selectedIndexNodeId);
 
   const [helpersHeight, setHelpersHeight] = useState(0);
   const helpersInnerRef = useRef(null);
@@ -246,6 +249,7 @@ function Graph() {
 
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
+  const [isDraggable, setIsDraggable] = useState(false);
 
   const handleToggle = () => dispatch(toggleContextMode());
 
@@ -280,12 +284,23 @@ function Graph() {
     const updatedNodes = [];
     const updatedEdges = [];
 
+    // 부모-자식 관계 설정
     Object.values(nodeMap).forEach((node) => {
       if (!node?.id) return;
       if (node.parent) {
         if (!childrenMap[node.parent]) childrenMap[node.parent] = [];
         childrenMap[node.parent].push(node.id);
       }
+    });
+
+    // 🔥 자식 노드를 '생성 시간' 순으로 정렬 (과거 -> 미래)
+    Object.keys(childrenMap).forEach((parentId) => {
+      childrenMap[parentId].sort((aId, bId) => {
+        const nodeA = nodeMap[aId];
+        const nodeB = nodeMap[bId];
+        // createdAt이 없으면 0으로 취급하여 안전하게 정렬
+        return (nodeA.createdAt || 0) - (nodeB.createdAt || 0);
+      });
     });
 
     const nodeDepths = {};
@@ -303,20 +318,18 @@ function Graph() {
 
     Object.keys(nodeMap).forEach(getDepth);
 
-    // 🔥 정교한 노드 길이 측정기
     const estimateNodeWidth = (text) => {
       const str = String(text || "");
       let w = 0;
       for (let i = 0; i < str.length; i++) {
         const charCode = str.charCodeAt(i);
-        if (charCode === 32) w += 14 * 0.3; // 띄어쓰기
-        else if (charCode >= 0xac00 && charCode <= 0xd7a3) w += 14 * 0.95; // 한글
-        else w += 14 * 0.6; // 영문/숫자
+        if (charCode === 32) w += 14 * 0.3; 
+        else if (charCode >= 0xac00 && charCode <= 0xd7a3) w += 14 * 0.95;
+        else w += 14 * 0.6; 
       }
-      return w + 44; // 노드 양옆 패딩 및 보더값
+      return w + 44; 
     };
 
-    // 🔥 정교한 관계선(relation) 라벨 길이 측정기
     const estimateRelWidth = (text) => {
       const str = String(text || "");
       if (str === "null" || str === "") return 0;
@@ -327,32 +340,24 @@ function Graph() {
         else if (charCode >= 0xac00 && charCode <= 0xd7a3) w += 13 * 0.95;
         else w += 13 * 0.6;
       }
-      return w + 16; // 라벨 내부 패딩
+      return w + 16; 
     };
 
-    // 각 뎁스별로 필요한 실제 [최소 간격] 저장
-    const gapAtDepth = {}; 
+    const gapAtDepth = {};
 
-    // 🔥 [핵심 로직] 각 엣지(선) 단위로 묶어서 간격 계산!
     Object.values(nodeMap).forEach((node) => {
       if (!node.parent || !nodeMap[node.parent]) return;
       
       const pDepth = nodeDepths[node.parent];
       const pNode = nodeMap[node.parent];
       
-      const pNodeWidth = estimateNodeWidth(pNode.keyword); // 출발 노드 폭
-      const relWidth = estimateRelWidth(node.relation); // 해당 선의 텍스트 폭
+      const pNodeWidth = estimateNodeWidth(pNode.keyword); 
+      const relWidth = estimateRelWidth(node.relation); 
       
-      // 텍스트가 있을 경우, 텍스트가 꺾임선을 침범하지 않게 양옆 여유분(buffer) 딱 15px만 부여
-      const buffer = relWidth > 0 ? 15 : 0; 
-      
-      // 가운데서 꺾이는 SmoothStep 특성상, 텍스트를 담을 오른쪽 수평선을 만들려면 그 두 배의 물리적 거리가 필요함
+      const buffer = relWidth > 0 ? 15 : 0;
       const requiredDistanceX = (relWidth + buffer) * 2;
-      
-      // 이 특정 엣지가 요구하는 [출발지 ~ 도착지까지의 최소 X거리]
       const requiredGap = pNodeWidth + requiredDistanceX;
       
-      // 같은 depth에 있는 여러 엣지들 중 "가장 긴 놈"을 최종 기준 간격으로 갱신!
       if (!gapAtDepth[pDepth] || requiredGap > gapAtDepth[pDepth]) {
         gapAtDepth[pDepth] = requiredGap;
       }
@@ -361,15 +366,14 @@ function Graph() {
     const depthX = { 0: 0 };
     const maxD = Math.max(...Object.values(nodeDepths), 0);
     
-    // 최종 산출된 뎁스별 간격 적용
     for (let d = 0; d <= maxD; d++) {
-       // 노드나 라벨이 아예 없어서 너무 짧아지는 걸 방지하기 위해 최소 240px 보장
-       const gap = Math.max(gapAtDepth[d] || 240, 240); 
+       const gap = Math.max(gapAtDepth[d] || 240, 240);
        depthX[d+1] = depthX[d] + gap;
     }
 
     const spacingY = 100;
-    let currentY = 10000;
+    // Y좌표는 0부터 시작해서 아래로 증가 (Top-Down)
+    let currentY = 0; 
 
     const assignPositions = (nodeId, depth, rootId, inheritedColor) => {
       const children = childrenMap[nodeId] || [];
@@ -389,13 +393,18 @@ function Graph() {
 
       let yPos;
       if (children.length === 0) {
-        currentY -= spacingY;
+        // 리프 노드: 현재 커서 위치에 배치하고, 커서를 아래로 이동
         yPos = currentY;
+        currentY += spacingY; 
         subtreeHeight = spacingY;
       } else {
-        const top = positionedMap[childPositions[0].id].y;
-        const bottom = positionedMap[childPositions[childPositions.length - 1].id].y;
-        yPos = (top + bottom) / 2;
+        // 🔥 [핵심 수정] 부모 노드 위치 계산 로직 변경
+        // 기존: (top + bottom) / 2  -> 중앙 정렬 (위아래 대칭 발생)
+        // 변경: childPositions[0].y -> 첫 번째 자식(가장 오래된 자식)과 높이를 맞춤
+        
+        // 이렇게 하면 부모가 항상 그룹의 '상단'에 위치하게 되어, 
+        // 새로운 자식들은 부모보다 '아래쪽'으로만 쌓이게 됩니다.
+        yPos = positionedMap[childPositions[0].id].y;
       }
 
       positionedMap[nodeId] = { x: depthX[depth], y: yPos };
@@ -426,53 +435,177 @@ function Graph() {
       });
     });
 
+    // root 노드는 항상 중립 색상
+    rootColorMap["root"] = "#606368";
+
+    // 배경 rect: 활성 노드를 column(같은 x)별로 묶고, 사이에 비활성 노드 없는 것만 합침
+    const highlightSet = new Set();
+    if (!contextMode) {
+      activeNodeIds.forEach((id) => { if (positionedMap[id]) highlightSet.add(id); });
+      if (selectedIndexNodeId) {
+        Object.keys(nodeRootMap).forEach((id) => {
+          if (nodeRootMap[id] === selectedIndexNodeId && positionedMap[id]) highlightSet.add(id);
+        });
+      }
+    }
+    const highlightedRootIds = new Set([...highlightSet].map((id) => nodeRootMap[id]).filter(Boolean));
+
+    const calcNodeW = (id) => {
+      const str = String(nodeMap[id]?.keyword || "");
+      let w = 0;
+      for (let i = 0; i < str.length; i++) {
+        const c = str.charCodeAt(i);
+        if (c === 32) w += 14 * 0.3;
+        else if (c >= 0xac00 && c <= 0xd7a3) w += 14 * 0.95;
+        else w += 14 * 0.6;
+      }
+      return w + 44;
+    };
+
+    const pad = 24;
+    const nodeH = 44;
+
+    // 비활성 노드 center point (같은 rootId 내 충돌 검사용)
+    const nonActiveCenters = Object.keys(positionedMap)
+      .filter((id) => !highlightSet.has(id))
+      .map((id) => ({
+        rootId: nodeRootMap[id],
+        cx: positionedMap[id].x + calcNodeW(id) / 2,
+        cy: positionedMap[id].y + nodeH / 2,
+      }));
+
+    // 활성 노드 개별 rect
+    let bgRects = [];
+    highlightSet.forEach((id) => {
+      bgRects.push({
+        rootId: nodeRootMap[id],
+        x1: positionedMap[id].x - pad,
+        y1: positionedMap[id].y - pad,
+        x2: positionedMap[id].x + calcNodeW(id) + pad,
+        y2: positionedMap[id].y + nodeH + pad,
+      });
+    });
+
+    // 합쳤을 때 같은 rootId 비활성 노드 center가 들어오지 않으면 merge
+    const canMerge = (a, b) => {
+      if (a.rootId !== b.rootId) return false;
+      const mx1 = Math.min(a.x1, b.x1), my1 = Math.min(a.y1, b.y1);
+      const mx2 = Math.max(a.x2, b.x2), my2 = Math.max(a.y2, b.y2);
+      return !nonActiveCenters.some(
+        (n) => n.rootId === a.rootId && n.cx > mx1 && n.cx < mx2 && n.cy > my1 && n.cy < my2
+      );
+    };
+
+    let didMerge = true;
+    while (didMerge) {
+      didMerge = false;
+      for (let i = 0; i < bgRects.length && !didMerge; i++) {
+        for (let j = i + 1; j < bgRects.length && !didMerge; j++) {
+          if (canMerge(bgRects[i], bgRects[j])) {
+            bgRects.push({
+              rootId: bgRects[i].rootId,
+              x1: Math.min(bgRects[i].x1, bgRects[j].x1),
+              y1: Math.min(bgRects[i].y1, bgRects[j].y1),
+              x2: Math.max(bgRects[i].x2, bgRects[j].x2),
+              y2: Math.max(bgRects[i].y2, bgRects[j].y2),
+            });
+            bgRects.splice(j, 1);
+            bgRects.splice(i, 1);
+            didMerge = true;
+          }
+        }
+      }
+    }
+
+    bgRects.forEach((rect, i) => {
+      updatedNodes.push({
+        id: `__bg_${rect.rootId}_${i}__`,
+        type: "topicBg",
+        data: { color: rootColorMap[rect.rootId] || "#888" },
+        position: { x: rect.x1, y: rect.y1 },
+        style: { width: rect.x2 - rect.x1, height: rect.y2 - rect.y1, zIndex: -1 },
+        draggable: false, selectable: false, connectable: false, zIndex: -1,
+      });
+    });
+
     Object.keys(positionedMap).forEach((id) => {
       const node = nodeMap[id];
       const isActive = activeNodeIds.includes(id);
       const nodeColor = rootColorMap[id] || rootColorMap[node.parent] || "#333";
+      const rootId = nodeRootMap[id];
+      const isNodeHighlighted = highlightedRootIds.size === 0 || highlightedRootIds.has(rootId);
 
       updatedNodes.push({
         id,
         type: "tooltipNode",
-        data: { label: node.keyword, color: nodeColor, isActive },
+        data: { label: node.keyword, color: nodeColor, darkerColor: dullify(nodeColor, 0.35), isActive, isIndexHighlighted: isNodeHighlighted },
         position: positionedMap[id],
         sourcePosition: "right",
         targetPosition: "left",
       });
     });
 
+    // 활성 노드 각각에서 루트까지의 경로 간선 ID를 수집
+    const pathEdgeIds = new Set();
+    activeNodeIds.forEach((nid) => {
+      let current = nid;
+      while (nodeMap[current]?.parent && nodeMap[nodeMap[current].parent]) {
+        const parentId = nodeMap[current].parent;
+        pathEdgeIds.add(`${parentId}-${current}`);
+        current = parentId;
+      }
+    });
+
+    const grayEdges = [];
+    const coloredEdges = [];
+
     Object.values(nodeMap).forEach((node) => {
       if (!node?.parent || !nodeMap[node.parent]) return;
 
       const isActive = activeNodeIds.includes(node.id);
       const parentIsActive = activeNodeIds.includes(node.parent);
-      const edgeOpacity = contextMode && !(isActive || parentIsActive) ? 0.2 : 1;
       const rootId = nodeRootMap[node.id];
-      const edgeColor = rootColorMap[rootId] || "#333";
+      const isHighlighted = highlightedRootIds.size === 0 || highlightedRootIds.has(rootId);
+      const isActiveEdge = isHighlighted && highlightedRootIds.size > 0;
+      const edgeId = `${node.parent}-${node.id}`;
+      const isPathEdge = pathEdgeIds.has(edgeId);
+      const edgeColor = (isPathEdge || activeNodeIds.length === 0) ? (rootColorMap[rootId] || "#333") : "#BEBEBE";
+      const edgeOpacity = contextMode && !(isActive || parentIsActive) ? 0.2 : 1;
+      const strokeWidth = isPathEdge ? 4 : 2;
 
-      updatedEdges.push({
+      const edge = {
         id: `${node.parent}-${node.id}`,
         source: node.parent,
         target: node.id,
         label: node.relation || "관련",
         type: "custom",
         animated: false,
+        zIndex: isPathEdge ? 10 : 0,
         style: {
-          strokeWidth: 2,
+          strokeWidth,
           stroke: edgeColor,
           opacity: edgeOpacity,
-          transition: "opacity 0.2s ease",
+          transition: "none",
         },
         data: { sourceId: node.parent, targetId: node.id, isActive, contextMode, activeNodeIds },
         labelStyle: { fontWeight: 600, fontSize: 14, opacity: edgeOpacity },
         markerEnd: { type: "arrowclosed", color: edgeColor },
-      });
+      };
+
+      if (isActiveEdge) {
+        coloredEdges.push(edge);
+      } else {
+        grayEdges.push(edge);
+      }
     });
+
+    // 선택된 토픽 간선을 마지막에 배치해서 앞에 렌더링
+    updatedEdges.push(...grayEdges, ...coloredEdges);
 
     setNodes(updatedNodes);
     setEdges(updatedEdges);
     dispatch(setNodeColors(rootColorMap));
-  }, [nodesData, activeNodeIds, contextMode, dispatch]);
+  }, [nodesData, activeNodeIds, contextMode, selectedIndexNodeId, dispatch]);
 
   useEffect(() => {
     const measure = () => {
@@ -516,9 +649,9 @@ function Graph() {
         <ToggleContainer>
           <ToggleButton active={contextMode} onToggle={handleToggle} />
         </ToggleContainer>
-        <VisContainer>
+        {/* <VisContainer>
           <VisButton />
-        </VisContainer>
+        </VisContainer> */}
         <ContextButton />
         <ReactFlow
           nodes={nodes}
@@ -527,6 +660,9 @@ function Graph() {
           onEdgesChange={onEdgesChange}
           nodeTypes={nodeTypes}
           edgeTypes={edgeTypes}
+          nodesDraggable={isDraggable}
+          elementsSelectable={true}
+          onInteractiveChange={(isInteractive) => setIsDraggable(isInteractive)}
           fitView
         >
           <Background variant="dots" gap={20} size={1.5} color="#ddd" />
