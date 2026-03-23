@@ -132,7 +132,7 @@ function Chatbot() {
   const scrollToMessage = (index) => {
     const el = messageRefs.current[index];
     if (el) {
-      el.scrollIntoView({ behavior: "smooth", block: "center" });
+      el.scrollIntoView({ behavior: "smooth", block: "start" });
     }
   };
 

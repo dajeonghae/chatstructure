@@ -249,6 +249,7 @@ function Graph() {
 
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
+  const [isDraggable, setIsDraggable] = useState(false);
 
   const handleToggle = () => dispatch(toggleContextMode());
 
@@ -624,6 +625,9 @@ function Graph() {
           onEdgesChange={onEdgesChange}
           nodeTypes={nodeTypes}
           edgeTypes={edgeTypes}
+          nodesDraggable={isDraggable}
+          elementsSelectable={true}
+          onInteractiveChange={(isInteractive) => setIsDraggable(isInteractive)}
           fitView
         >
           <Background variant="dots" gap={20} size={1.5} color="#ddd" />
