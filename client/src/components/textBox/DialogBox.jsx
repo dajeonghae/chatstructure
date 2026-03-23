@@ -91,7 +91,7 @@ const MessageBubble = styled.div`
     word-wrap: break-word;
     text-align: ${(props) => (props.isUser ? 'right' : 'left')};
     transition: all 0.3s ease;
-    transform: ${(props) => (props.isActive && props.isScrolled ? 'scale(1.05)' : 'scale(1)')};
+    transform: ${(props) => (props.isActive && props.isScrolled ? 'scale(1.01)' : 'scale(1)')};
     box-shadow: ${(props) => (props.isActive && props.isScrolled ? '0 4px 12px rgba(0, 0, 0, 0.1)' : 'none')};
 `;
 

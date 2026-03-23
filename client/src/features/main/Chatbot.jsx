@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useLayoutEffect } from "react";
 import styled from "styled-components";
 import { useDispatch, useSelector } from "react-redux";
 import { sendMessageToApi } from "../../services/chatbotService.js";
-import { setCurrentScrolledDialog } from "../../redux/slices/nodeSlice.js";
+import { setCurrentScrolledDialog, clearActiveSelections } from "../../redux/slices/nodeSlice.js";
 import { parseConversationHistory } from "../../utils/parseConversationHistory.js";
 import {
   buildFullSnapshot,
@@ -142,6 +142,19 @@ function Chatbot() {
     }
   };
 
+  const getAllDescendantDialogs = (startNodeId) => {
+    const result = new Set();
+    const queue = [startNodeId];
+    while (queue.length) {
+      const nodeId = queue.shift();
+      const n = nodes[nodeId];
+      if (!n) continue;
+      Object.keys(n.dialog || {}).map(Number).forEach((d) => result.add(d));
+      (n.children || []).forEach((childId) => queue.push(childId));
+    }
+    return [...result];
+  };
+
   const calculateTopicMarkers = () => {
     const container = scrollContainerRef.current;
     if (!container) return;
@@ -154,23 +167,10 @@ function Chatbot() {
 
     const containerRect = container.getBoundingClientRect();
 
-    const getAllDescendantDialogs = (topicNode) => {
-      const result = new Set();
-      const queue = [topicNode.id];
-      while (queue.length) {
-        const nodeId = queue.shift();
-        const n = nodes[nodeId];
-        if (!n) continue;
-        Object.keys(n.dialog || {}).map(Number).forEach((d) => result.add(d));
-        (n.children || []).forEach((childId) => queue.push(childId));
-      }
-      return [...result];
-    };
-
     // 토픽별 dialog 소유 맵 (다른 토픽이 중간에 있는지 확인용)
     const dialogTopicMap = {};
     topicNodes.forEach((tn) => {
-      getAllDescendantDialogs(tn).forEach((d) => {
+      getAllDescendantDialogs(tn.id).forEach((d) => {
         if (!dialogTopicMap[d]) dialogTopicMap[d] = [];
         dialogTopicMap[d].push(tn.id);
       });
@@ -178,7 +178,7 @@ function Chatbot() {
 
     const markers = topicNodes
       .map((node) => {
-        const dialogNumbers = getAllDescendantDialogs(node);
+        const dialogNumbers = getAllDescendantDialogs(node.id);
         if (dialogNumbers.length === 0) return null;
 
         const sorted = [...dialogNumbers].sort((a, b) => a - b);
@@ -269,8 +269,27 @@ function Chatbot() {
       .filter(Boolean);
   };
 
+  // contextMode OFF 시 활성화된 선택 초기화
+  const prevContextModeRef = useRef(false);
+  const justClearedRef = useRef(false);
+  useEffect(() => {
+    if (prevContextModeRef.current && !contextMode) {
+      justClearedRef.current = true;
+      setGraphNodeSegments([]);
+      setGraphTopicNodeId(null);
+      setAllTopicsHighlighted(false);
+      dispatch(clearActiveSelections());
+    }
+    prevContextModeRef.current = contextMode;
+  }, [contextMode, dispatch]);
+
   // 활성화된 노드 → ChatIndex highlight + 스크롤 (모든 모드 통합)
   useEffect(() => {
+    // contextMode 해제 직후엔 stale activeNodeIds로 재계산하지 않음
+    if (justClearedRef.current) {
+      justClearedRef.current = false;
+      return;
+    }
     if (contextMode) return;
     if (activeNodeIds.length === 0) {
       setGraphNodeSegments([]);
@@ -313,8 +332,6 @@ function Chatbot() {
     while (cur && cur.parent && cur.parent !== "root") cur = nodes[cur.parent];
     setGraphNodeColor((cur?.id && nodeColors[cur.id]) || "#A5A7AA");
     setGraphTopicNodeId(cur?.id || null);
-
-    if (segs.length > 0) setTimeout(() => scrollToMessage(segs[0].messageIndex), 0);
   }, [activeNodeIds, nodes, messages, contextMode]);
 
   useEffect(() => {
@@ -327,15 +344,18 @@ function Chatbot() {
     const newlyAdded = currSorted.filter((num) => !prevSorted.includes(num));
     const newlyRemoved = prevSorted.filter((num) => !currSorted.includes(num));
 
-    if (newlyAdded.length > 0) {
-      const latest = newlyAdded[newlyAdded.length - 1];
-      const latestIndex = latest - 1;
-
-      dispatch(setCurrentScrolledDialog(latest));
-
-      setTimeout(() => {
-        scrollToMessage(latestIndex);
-      }, 0);
+    if (newlyAdded.length > 0 && currSorted.length > 0) {
+      if (contextMode) {
+        // 새 메시지 추가(context mode) → 최신 대화로 스크롤
+        const latest = currSorted[currSorted.length - 1];
+        dispatch(setCurrentScrolledDialog(latest));
+        setTimeout(() => scrollToMessage(latest - 1), 0);
+      } else {
+        // 인덱스/노드 등으로 history 활성화 → 가장 이른 대화로 스크롤
+        const earliest = currSorted[0];
+        dispatch(setCurrentScrolledDialog(earliest));
+        setTimeout(() => scrollToMessage(earliest - 1), 0);
+      }
     } else if (newlyRemoved.length > 0 && currSorted.length > 0) {
       const closest = currSorted.reduce((prev, curr) => {
         return Math.abs(curr - currentScrolledDialog) < Math.abs(prev - currentScrolledDialog)
@@ -347,7 +367,7 @@ function Chatbot() {
     }
 
     prevActiveDialogNumbersRef.current = currDialogs;
-  }, [activeDialogNumbers, currentScrolledDialog, dispatch]);
+  }, [activeDialogNumbers, currentScrolledDialog, dispatch, contextMode]);
 
   useEffect(() => {
     scrollToBottom();
