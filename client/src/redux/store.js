@@ -5,7 +5,18 @@ import modeReducer from "./slices/modeSlice";
 const loadNodeState = () => {
   try {
     const saved = localStorage.getItem('experiment_node_state');
-    return saved ? { node: JSON.parse(saved) } : undefined;
+    if (!saved) return undefined;
+    const parsed = JSON.parse(saved);
+    return {
+      node: {
+        ...parsed,
+        activeNodeIds: [],
+        activeDialogNumbers: [],
+        currentScrolledDialog: null,
+        selectedIndexNodeId: null,
+        selectedGraphNodeId: null,
+      },
+    };
   } catch {
     return undefined;
   }
