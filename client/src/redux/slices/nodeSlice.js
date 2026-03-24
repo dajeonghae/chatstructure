@@ -3,34 +3,36 @@ import { createSlice, createAction } from "@reduxjs/toolkit";
 // ✅ [변경 2] nodeColors 세팅용 액션 생성
 export const setNodeColors = createAction("node/setNodeColors");
 
+const defaultInitialState = {
+  nodes: {
+    root: {
+      id: "root",
+      keyword: "Root",
+      centroid: null,
+      count: 0,
+      simStats: null,
+      parent: null,
+      relation: null,
+      children: [],
+      dialog: {
+        0: { userMessage: "Root", gptMessage: "Root Node" }
+      },
+      keywords: [],
+      createdAt: 0,
+    },
+  },
+  activeNodeIds: [],
+  activeDialogNumbers: [],
+  dialogCount: 1,
+  currentScrolledDialog: null,
+  selectedIndexNodeId: null,
+  selectedGraphNodeId: null,
+  nodeColors: {},
+};
+
 const nodeSlice = createSlice({
   name: "node",
-  initialState: {
-    nodes: {
-      root: {
-        id: "root",
-        keyword: "Root",
-        centroid: null,
-        count: 0,
-        simStats: null, 
-        parent: null,
-        relation: null,
-        children: [],
-        dialog: {
-          0: { userMessage: "Root", gptMessage: "Root Node" }
-        },
-        keywords: [],
-        createdAt: 0,
-      },
-    },
-    activeNodeIds: [],
-    activeDialogNumbers: [],
-    dialogCount: 1,
-    currentScrolledDialog: null,
-    selectedIndexNodeId: null,
-    selectedGraphNodeId: null,
-    nodeColors: {},
-  },
+  initialState: defaultInitialState,
 
   reducers: {
     toggleActiveDialog: (state, action) => {
@@ -241,6 +243,8 @@ const nodeSlice = createSlice({
       state.selectedGraphNodeId = null;
     },
 
+    resetToInitial: () => defaultInitialState,
+
     resetState: (state, action) => {
       const { nodes, activeNodeIds, activeDialogNumbers, dialogCount, currentScrolledDialog, nodeColors } = action.payload;
       state.nodes = nodes || state.nodes;
@@ -263,5 +267,5 @@ const nodeSlice = createSlice({
   },
 });
 
-export const { toggleActiveDialog, toggleActiveNode, addOrUpdateNode, setParentNode, applyEmbeddingUpdate, setCurrentScrolledDialog, setSelectedIndexNode, setSelectedGraphNode, resetState, setNodeKeywords, clearActiveSelections } = nodeSlice.actions;
+export const { toggleActiveDialog, toggleActiveNode, addOrUpdateNode, setParentNode, applyEmbeddingUpdate, setCurrentScrolledDialog, setSelectedIndexNode, setSelectedGraphNode, resetState, resetToInitial, setNodeKeywords, clearActiveSelections } = nodeSlice.actions;
 export default nodeSlice.reducer;

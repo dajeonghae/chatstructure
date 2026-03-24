@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import styled from 'styled-components';
 import Chatbot from "../features/main/Chatbot.jsx";
 import Graph from "../features/main/Graph.jsx";
+import EndExperimentButton from "../components/button/EndExperimentButton.jsx";
 
 const Container = styled.div`
   display: flex;
@@ -44,7 +45,7 @@ const GraphContainer = styled.div`
   box-sizing: border-box;
 `;
 
-function Main() {
+function Main({ onLogout }) {
   return (
     <Container>
       <ChatSection>
@@ -57,6 +58,7 @@ function Main() {
           <Graph/>
         </GraphContainer>
       </GraphSection>
+      <EndExperimentButton onEnd={onLogout} />
     </Container>
   );
 }

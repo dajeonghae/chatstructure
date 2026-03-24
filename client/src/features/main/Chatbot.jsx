@@ -120,7 +120,10 @@ const ImportButton = styled(SaveButton)`
 `;
 
 function Chatbot({ showIndex = true }) {
-  const [messages, setMessages] = useState([]);
+  const [messages, setMessages] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('experiment_messages_main')) || []; }
+    catch { return []; }
+  });
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [scrollPercent, setScrollPercent] = useState(100);
@@ -436,6 +439,7 @@ function Chatbot({ showIndex = true }) {
   }, [activeDialogNumbers, currentScrolledDialog, dispatch, contextMode]);
 
   useEffect(() => {
+    localStorage.setItem('experiment_messages_main', JSON.stringify(messages));
     scrollToBottom();
     setTimeout(() => {
       calculateTopicMarkers();
