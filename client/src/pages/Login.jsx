@@ -106,7 +106,7 @@ export default function Login({ onLogin }) {
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    const trimId = id.trim().toUpperCase();
+    const trimId = id.trim();
     if (CREDENTIALS[trimId] && CREDENTIALS[trimId] === pw) {
       onLogin(trimId);
     } else {
