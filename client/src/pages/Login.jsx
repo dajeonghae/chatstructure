@@ -22,7 +22,7 @@ const CREDENTIALS = {
   P18: "vL3$hE5#kX",
   P19: "nC7!oG2&pW",
   P20: "rU4@wN8$zS",
-  admin: "contextnaviadmin"
+  admin: "admin1234"
 };
 
 const Wrapper = styled.div`
