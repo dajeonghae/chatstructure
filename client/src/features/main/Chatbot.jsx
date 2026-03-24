@@ -119,7 +119,7 @@ const ImportButton = styled(SaveButton)`
   border: 1px solid #2d3748;
 `;
 
-function Chatbot() {
+function Chatbot({ showIndex = true }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -709,15 +709,17 @@ function Chatbot() {
         />
       </ChatContainer>
 
-      <ChatIndex
-        scrollPercent={scrollPercent}
-        markers={topicMarkers}
-        graphNodeSegments={graphNodeSegments}
-        graphNodeColor={graphNodeColor}
-        graphTopicNodeId={graphTopicNodeId}
-        allTopicsHighlighted={allTopicsHighlighted}
-        onMarkerClick={handleMarkerClick}
-      />
+      {showIndex && (
+        <ChatIndex
+          scrollPercent={scrollPercent}
+          markers={topicMarkers}
+          graphNodeSegments={graphNodeSegments}
+          graphNodeColor={graphNodeColor}
+          graphTopicNodeId={graphTopicNodeId}
+          allTopicsHighlighted={allTopicsHighlighted}
+          onMarkerClick={handleMarkerClick}
+        />
+      )}
     </LayoutWrapper>
   );
 }
