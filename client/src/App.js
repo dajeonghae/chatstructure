@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { Provider } from "react-redux";
 import { store } from "./redux/store";
 import { resetToInitial } from "./redux/slices/nodeSlice";
+import { initTracking, clearTracking, submitExperimentData } from "./services/trackingService";
 import Main from "./pages/main";
 import ChatOnly from "./pages/ChatOnly";
 import Login from "./pages/Login";
@@ -14,15 +15,22 @@ function isEvenP(user) {
 }
 
 function App() {
-  const [user, setUser] = useState(() => localStorage.getItem('experiment_user'));
+  const [user, setUser] = useState(() => {
+    const u = localStorage.getItem('experiment_user');
+    if (u) initTracking(u);
+    return u;
+  });
 
   const handleLogin = (u) => {
     localStorage.setItem('experiment_user', u);
+    initTracking(u);
     setUser(u);
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    await submitExperimentData();
     store.dispatch(resetToInitial());
+    clearTracking();
     localStorage.removeItem('experiment_user');
     localStorage.removeItem('experiment_messages_chatonly');
     localStorage.removeItem('experiment_messages_main');

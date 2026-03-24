@@ -5,6 +5,7 @@ import { useDispatch, useSelector } from "react-redux";
 import { setHoveredNodes, clearHoveredNodes } from "../../redux/slices/modeSlice";
 import { toggleActiveNode, setSelectedIndexNode } from "../../redux/slices/nodeSlice";
 import { COLORS } from "../../styles/colors";
+import { trackNodeInteraction } from "../../services/trackingService";
 
 const TooltipContainer = styled.div`
   position: relative;
@@ -103,6 +104,7 @@ const TooltipNode = ({ data, id }) => {
 
   const handleClick = (event) => {
     event.stopPropagation();
+    trackNodeInteraction();
     if ((linearMode || treeMode) && hoveredNodeIds.length > 0) {
       if (contextMode) {
         hoveredNodeIds.forEach((id) => dispatch(toggleActiveNode(id)));

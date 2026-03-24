@@ -10,6 +10,7 @@ import {
   loadSnapshotThunk,
 } from "../../utils/snapshotManager.js";
 import { store } from "../../redux/store.js";
+import { trackMessage } from "../../services/trackingService.js";
 import axios from "axios";
 import DialogPair from "../../components/textBox/DialogPair.jsx";
 import ChatIndex from "./ChatIndex.jsx";
@@ -533,6 +534,7 @@ function Chatbot({ showIndex = true }) {
 
       updatedMessages = [...updatedMessages, gptMessage];
       setMessages(updatedMessages);
+      trackMessage(Math.ceil(userMessage.number / 2), input, gptMessageContent);
     } catch (error) {
       console.error("Error sending message:", error);
     } finally {

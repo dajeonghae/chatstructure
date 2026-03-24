@@ -12,6 +12,7 @@ import axios from 'axios';
 import DialogPair from '../components/textBox/DialogPair.jsx';
 import ChatInput from '../components/textBox/ChatInput.jsx';
 import EndExperimentButton from '../components/button/EndExperimentButton.jsx';
+import { trackMessage } from '../services/trackingService.js';
 
 const Container = styled.div`
   width: 100%;
@@ -135,6 +136,7 @@ function ChatOnly({ onLogout }) {
 
       updatedMessages = [...updatedMessages, gptMessage];
       setMessages(updatedMessages);
+      trackMessage(Math.ceil(userMessage.number / 2), input, gptMessageContent);
     } catch (error) {
       console.error('Error sending message:', error);
     } finally {

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { setSelectedIndexNode, toggleActiveNode } from "../../redux/slices/nodeSlice";
+import { trackIndexInteraction } from "../../services/trackingService";
 import styled from "styled-components";
 
 const IndexWrapper = styled.div`
@@ -226,6 +227,7 @@ const ChatIndex = ({ scrollPercent, markers = [], graphNodeSegments = [], graphN
   })();
 
   const handleMarkerClick = (marker) => {
+    trackIndexInteraction();
     activeNodeIds.forEach((id) => dispatch(toggleActiveNode(id)));
     if (selectedNodeId === marker.nodeId) {
       dispatch(setSelectedIndexNode(null));
