@@ -1,57 +1,18 @@
-import React from 'react';
+import { useState } from 'react';
 import styled from 'styled-components';
-import ReactMarkdown from 'react-markdown'; 
+import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
-import 'katex/dist/katex.min.css'; 
+import 'katex/dist/katex.min.css';
 import { COLORS } from "../../styles/colors.jsx";
-import { useSelector, useDispatch } from "react-redux";
-import { toggleActiveDialog } from "../../redux/slices/nodeSlice";
+import { useSelector } from "react-redux";
 
 const Container = styled.div`
     display: flex;
-    flex-direction: row; 
-    justify-content: ${(props) => (props.isUser ? 'flex-end' : 'flex-start')}; 
+    flex-direction: row;
+    justify-content: ${(props) => (props.isUser ? 'flex-end' : 'flex-start')};
     margin: 6px;
     position: relative;
-`;
-
-const ToggleButton = styled.button`
-  position: absolute;
-  top: 5px;
-  right: ${(props) => (props.isUser ? '5px' : 'auto')};
-  left: ${(props) => (props.isUser ? 'auto' : '5px')};
-  font-size: 12px;
-  padding: 2px 6px;
-  border-radius: 12px;
-  border: none;
-  background-color: ${(props) =>
-    props.isActive ? '#2f855a' : '#f6b6b6'}; 
-  color: white;
-  cursor: pointer;
-  z-index: 2;
-  opacity: 0.9;
-  transition: background-color 0.2s ease, opacity 0.2s ease;
-
-  &:hover {
-    background-color: ${(props) =>
-      props.isActive ? '#2f855a' : '#2f855a'}; 
-    opacity: 1;
-  }
-`;
-
-const Circle = styled.div`
-    width: 12px;
-    height: 12px;
-    border-radius: 50%;
-    background-color: #d9d9d9;
-    margin-bottom: 2px;
-`;
-
-const Line = styled.div`
-    width: 2px;
-    flex-grow: 1;
-    background-color: #d9d9d9;
 `;
 
 const MessageBubble = styled.div`
@@ -64,32 +25,32 @@ const MessageBubble = styled.div`
         if (props.isActive) {
           if (props.isUser) {
             return props.isScrolled
-                ? `${props.activeColor}66` // 53%
-                : `${props.activeColor}44`; // 40%
+                ? `${props.activeColor}66`
+                : `${props.activeColor}44`;
           } else {
             return props.isScrolled
-            ? `${props.activeColor}0A` // AI: 적당히 투명하게
-            : `${props.activeColor}0A`; // 덜 강조
+            ? `${props.activeColor}0A`
+            : `${props.activeColor}0A`;
             }
         }
-    
+
         if (props.isContextMode) {
           return props.isUser ? 'rgba(240, 240, 240, 0.5)' : 'transparent';
         }
-    
+
         return props.isUser ? '#f5f5f5' : '#fff';
       }};
-    color: '#343942'; 
-    opacity: ${(props) => (props.isContextMode && !props.isActive ? 0.3 : 1)};
+    color: '#343942';
+    opacity: 1;
     border: ${(props) => {
         if (!props.isUser && props.isActive) {
           const color = props.activeColor || '#2C7A7B';
-          return `1.5px solid ${color}44`; // 🔥 53% 투명도
+          return `1.5px solid ${color}44`;
         }
         return props.isUser ? 'none' : '1px solid rgba(217, 217, 217, 0.5)';
       }};
     word-wrap: break-word;
-    text-align: ${(props) => (props.isUser ? 'right' : 'left')};
+    text-align: left;
     transition: all 0.3s ease;
     transform: ${(props) => (props.isActive && props.isScrolled ? 'scale(1.01)' : 'scale(1)')};
     box-shadow: ${(props) => (props.isActive && props.isScrolled ? '0 4px 12px rgba(0, 0, 0, 0.1)' : 'none')};
@@ -107,17 +68,137 @@ const Label = styled.div`
     color: ${COLORS.basic_font};
 `;
 
-const DialogBox = ({ text, isUser, nodeId, number }) => {
-    const nodes = useSelector((state) => state.node.nodes); // 🔥 모든 노드 정보
+const AttachmentsRow = styled.div`
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    justify-content: flex-end;
+    margin-bottom: 4px;
+    margin-right: 6px;
+`;
+
+const AttachedImage = styled.img`
+    width: 120px;
+    height: 120px;
+    object-fit: cover;
+    border-radius: 12px;
+    border: 1px solid rgba(0, 0, 0, 0.1);
+    cursor: zoom-in;
+    transition: opacity 0.15s;
+    &:hover { opacity: 0.85; }
+`;
+
+const AttachedPdfBadge = styled.div`
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 5px 10px;
+    border-radius: 8px;
+    background-color: #f5f5f5;
+    border: 1px solid rgba(0, 0, 0, 0.1);
+    font-size: 12px;
+    color: #444;
+    max-width: 180px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: background 0.15s;
+    &:hover { background-color: #ebebeb; }
+`;
+
+/* ── 모달 공통 ── */
+const ModalOverlay = styled.div`
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.82);
+    z-index: 9999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+`;
+
+const CloseButton = styled.button`
+    position: fixed;
+    top: 20px;
+    right: 24px;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    border: none;
+    background: rgba(255,255,255,0.15);
+    color: #fff;
+    font-size: 20px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10000;
+    &:hover { background: rgba(255,255,255,0.28); }
+`;
+
+/* ── 이미지 뷰어 ── */
+const LightboxImage = styled.img`
+    max-width: 90vw;
+    max-height: 90vh;
+    border-radius: 8px;
+    object-fit: contain;
+    box-shadow: 0 8px 40px rgba(0,0,0,0.5);
+`;
+
+/* ── PDF 뷰어 ── */
+const PdfModal = styled.div`
+    width: 92vw;
+    height: 95vh;
+    background: #fff;
+    border-radius: 12px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+`;
+
+const PdfHeader = styled.div`
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 16px;
+    border-bottom: 1px solid #eee;
+    font-size: 14px;
+    font-weight: 600;
+    color: #333;
+    flex-shrink: 0;
+`;
+
+const PdfFrame = styled.iframe`
+    flex: 1;
+    width: 100%;
+    border: none;
+`;
+
+const PdfNoData = styled.div`
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    color: #888;
+    font-size: 14px;
+`;
+
+const DialogBox = ({ text, isUser, nodeId, number, attachments }) => {
+    const [modal, setModal] = useState(null); // { type: 'image'|'pdf', src, name }
+
+    const nodes = useSelector((state) => state.node.nodes);
     const activeDialogNumbers = useSelector((state) => state.node.activeDialogNumbers);
+    const contextDialogNumbers = useSelector((state) => state.node.contextDialogNumbers) || [];
     const currentScrolledDialog = useSelector((state) => state.node.currentScrolledDialog);
-    const contextMode = useSelector((state) => state.mode.contextMode);
     const nodeColors = useSelector((state) => state.node.nodeColors);
-    const dispatch = useDispatch();
     const isActive = activeDialogNumbers.includes(number);
+    const isContextActive = contextDialogNumbers.includes(number);
+    const hasAnyContext = contextDialogNumbers.length > 0;
     const isScrolled = currentScrolledDialog === number;
 
-    // 🔥 nodeId가 주어졌더라도 항상 역추적해서 실제 nodeId로 덮어씌움
     let actualNodeId = "root";
     Object.entries(nodes).forEach(([id, node]) => {
         Object.keys(node.dialog).forEach((dialogNumStr) => {
@@ -132,34 +213,89 @@ const DialogBox = ({ text, isUser, nodeId, number }) => {
 
     const activeColor = nodeColors[actualNodeId];
 
-    // console.log("🎯 nodeId:", actualNodeId);
-    // console.log("🎯 activeColor:", activeColor);
-    // console.log("🎯 nodeColors:", nodeColors);
+    const openModal = (att) => {
+        let src = att.preview || null;
+        if (att.type === 'pdf' && src && src.startsWith('data:')) {
+            try {
+                const base64 = src.split(',')[1];
+                const binary = atob(base64);
+                const bytes = new Uint8Array(binary.length);
+                for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+                const blob = new Blob([bytes], { type: 'application/pdf' });
+                src = URL.createObjectURL(blob);
+            } catch (e) {
+                console.warn('PDF blob 변환 실패:', e);
+                src = null;
+            }
+        }
+        setModal({ type: att.type, src, name: att.name });
+    };
+
+    const closeModal = () => {
+        if (modal?.type === 'pdf' && modal?.src?.startsWith('blob:')) {
+            URL.revokeObjectURL(modal.src);
+        }
+        setModal(null);
+    };
 
     return (
-        <Container isUser={isUser}>
-            {contextMode && isUser && (
-            <ToggleButton
-                isUser={isUser}
-                isActive={isActive}
-                onClick={(e) => {
-                e.stopPropagation();
-                dispatch(toggleActiveDialog(number)); // 질문 번호만 넘겨도 쌍으로 처리됨
-                }}
-            >
-                {isActive ? "On" : "Off"}
-            </ToggleButton>
+        <>
+        <Container isUser={isUser} style={{ flexDirection: 'column', alignItems: isUser ? 'flex-end' : 'flex-start' }}>
+            {attachments?.length > 0 && (
+                <AttachmentsRow>
+                    {attachments.map((att, i) =>
+                        att.type === 'image' ? (
+                            <AttachedImage
+                                key={i}
+                                src={att.preview}
+                                alt={att.name}
+                                onClick={() => openModal(att)}
+                            />
+                        ) : (
+                            <AttachedPdfBadge key={i} onClick={() => openModal(att)}>
+                                <span className="material-symbols-outlined" style={{ fontSize: 14, color: '#e74c3c' }}>picture_as_pdf</span>
+                                {att.name}
+                            </AttachedPdfBadge>
+                        )
+                    )}
+                </AttachmentsRow>
             )}
-            <MessageBubble isUser={isUser} isActive={isActive} isScrolled={isScrolled} isContextMode={contextMode} activeColor={activeColor}>
+            <MessageBubble isUser={isUser} isActive={isActive} isScrolled={isScrolled} isContextMode={hasAnyContext} isContextActive={isContextActive} activeColor={activeColor}>
                 <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
-                    {text}
+                    {isUser ? text.replace(/\n/g, '  \n') : text}
                 </ReactMarkdown>
             </MessageBubble>
-            {/* <LineContainer>
-                {isUser && <Circle />}
-                <Line />
-            </LineContainer> */}
         </Container>
+
+        {modal && (
+            <ModalOverlay onClick={closeModal}>
+                <CloseButton onClick={closeModal}>✕</CloseButton>
+                {modal.type === 'image' ? (
+                    <LightboxImage
+                        src={modal.src}
+                        alt={modal.name}
+                        onClick={(e) => e.stopPropagation()}
+                    />
+                ) : (
+                    <PdfModal onClick={(e) => e.stopPropagation()}>
+                        <PdfHeader>
+                            <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#e74c3c' }}>picture_as_pdf</span>
+                            {modal.name}
+                        </PdfHeader>
+                        {modal.src ? (
+                            <PdfFrame src={modal.src} title={modal.name} />
+                        ) : (
+                            <PdfNoData>
+                                <span className="material-symbols-outlined" style={{ fontSize: 40, color: '#ccc' }}>picture_as_pdf</span>
+                                <span>PDF는 현재 세션에서만 볼 수 있습니다</span>
+                                <span style={{ fontSize: 12 }}>(페이지 새로고침 후에는 미리보기 불가)</span>
+                            </PdfNoData>
+                        )}
+                    </PdfModal>
+                )}
+            </ModalOverlay>
+        )}
+        </>
     );
 };
 
